@@ -149,10 +149,54 @@ class Chunk {
             BLUE,       // 7 - Ore 2
             PURPLE      // 8 - Ore 3
         };
+        Vector3 faceDirs[6] = {
+            {1,0,0},   // Right
+            {-1,0,0},  // Left
+            {0,1,0},   // Top
+            {0,-1,0},  // Bottom
+            {0,0,1},   // Front
+            {0,0,-1}   // Back
+        };
         for (int r = 0; r < i; r++) {
             Vector3 pos = {(float)faces[r].x,(float)faces[r].y,(float)faces[r].z};
             for (int f = 0; f < 6; f++) {
                 if (faces[r].face & (1<<f)) {
+                        
+                    float ao = 1.0f;
+                    Vector3 dir = faceDirs[f];
+                    
+                    Vector3 perp1, perp2;
+                    if (f == 0 || f == 1) {
+                        perp1 = {0, 1, 0};
+                        perp2 = {0, 0, 1};
+                    } else if (f == 2 || f == 3) {
+                        perp1 = {1, 0, 0};
+                        perp2 = {0, 0, 1};
+                    } else {
+                        perp1 = {1, 0, 0};
+                        perp2 = {0, 1, 0};
+                    }
+                    int side1 = getVoxel(pos.x + perp1.x, pos.y + perp1.y, pos.z + perp1.z);
+                    int side2 = getVoxel(pos.x + perp2.x, pos.y + perp2.y, pos.z + perp2.z);
+                    int side3 = getVoxel(pos.x - perp1.x, pos.y - perp1.y, pos.z - perp1.z);
+                    int side4 = getVoxel(pos.x - perp2.x, pos.y - perp2.y, pos.z - perp2.z);
+                    
+                    int corner1 = getVoxel(pos.x + perp1.x + perp2.x, pos.y + perp1.y + perp2.y, pos.z + perp1.z + perp2.z);
+                    int corner2 = getVoxel(pos.x + perp1.x - perp2.x, pos.y + perp1.y - perp2.y, pos.z + perp1.z - perp2.z);
+                    int corner3 = getVoxel(pos.x - perp1.x + perp2.x, pos.y - perp1.y + perp2.y, pos.z - perp1.z + perp2.z);
+                    int corner4 = getVoxel(pos.x - perp1.x - perp2.x, pos.y - perp1.y - perp2.y, pos.z - perp1.z - perp2.z);
+                    
+                    ao -= (side1 != 0) * 0.10f;
+                    ao -= (side2 != 0) * 0.10f;
+                    ao -= (side3 != 0) * 0.10f;
+                    ao -= (side4 != 0) * 0.10f;
+                    
+                    if (side1 && side2) ao -= (corner1 != 0) * 0.05f;
+                    if (side1 && side4) ao -= (corner2 != 0) * 0.05f;
+                    if (side3 && side2) ao -= (corner3 != 0) * 0.05f;
+                    if (side3 && side4) ao -= (corner4 != 0) * 0.05f;
+                    if (ao < 0.2f) ao = 0.2f;
+                    if (ao > 1.0f) ao = 1.0f;
                     int v1 = faceIndices[f][0];
                     int v2 = faceIndices[f][1];
                     int v3 = faceIndices[f][2];
@@ -162,9 +206,9 @@ class Chunk {
                         mesh.vertices[vertexIndex * 3 + 0] = cubeVerts[v].x + pos.x;
                         mesh.vertices[vertexIndex * 3 + 1] = cubeVerts[v].y + pos.y;
                         mesh.vertices[vertexIndex * 3 + 2] = cubeVerts[v].z + pos.z;
-                        mesh.colors[vertexIndex * 4 + 0] = colors[faces[r].data].r;
-                        mesh.colors[vertexIndex * 4 + 1] = colors[faces[r].data].g;
-                        mesh.colors[vertexIndex * 4 + 2] = colors[faces[r].data].b;
+                        mesh.colors[vertexIndex * 4 + 0] = colors[faces[r].data].r*ao;
+                        mesh.colors[vertexIndex * 4 + 1] = colors[faces[r].data].g*ao;
+                        mesh.colors[vertexIndex * 4 + 2] = colors[faces[r].data].b*ao;
                         mesh.colors[vertexIndex * 4 + 3] = 255;
                         vertexIndex++;
                     }
@@ -174,9 +218,9 @@ class Chunk {
                         mesh.vertices[vertexIndex * 3 + 0] = cubeVerts[v].x + pos.x;
                         mesh.vertices[vertexIndex * 3 + 1] = cubeVerts[v].y + pos.y;
                         mesh.vertices[vertexIndex * 3 + 2] = cubeVerts[v].z + pos.z;
-                        mesh.colors[vertexIndex * 4 + 0] = colors[faces[r].data].r;
-                        mesh.colors[vertexIndex * 4 + 1] = colors[faces[r].data].g;
-                        mesh.colors[vertexIndex * 4 + 2] = colors[faces[r].data].b;
+                        mesh.colors[vertexIndex * 4 + 0] = colors[faces[r].data].r*ao;
+                        mesh.colors[vertexIndex * 4 + 1] = colors[faces[r].data].g*ao;
+                        mesh.colors[vertexIndex * 4 + 2] = colors[faces[r].data].b*ao;
                         mesh.colors[vertexIndex * 4 + 3] = 255;
                         vertexIndex++;
                     }
