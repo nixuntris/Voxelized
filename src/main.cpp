@@ -4,7 +4,7 @@
 #include <bit>
 #include "rlgl.h"
 #include <unordered_map>
-
+#include "raymath.h"
 class Chunk {
     
     public:
@@ -25,6 +25,21 @@ class Chunk {
     bool meshed = false;
     bool uploaded = false;
     Chunk* neighbors[6];
+    inline static float GetCaveNoise(int worldX, int worldY, int worldZ) {
+        float freq1 = 0.05f;
+        float freq2 = 0.1f;
+        float freq3 = 0.02f;
+        
+        float noise1 = sinf(worldX * freq1 + worldY * freq1 * 1.7f + worldZ * freq1 * 0.9f) * 
+                      cosf(worldX * freq1 * 1.3f - worldY * freq1 * 0.8f + worldZ * freq1 * 1.1f);
+        float noise2 = sinf(worldX * freq2 * 0.7f + worldY * freq2 * 1.1f + worldZ * freq2 * 1.3f) * 
+                      cosf(worldX * freq2 * 1.2f - worldY * freq2 * 0.9f + worldZ * freq2 * 0.7f);
+        float noise3 = sinf(worldX * freq3 + worldY * freq3 * 2.1f + worldZ * freq3 * 1.7f);
+        
+        float combined = (noise1 * 0.5f + noise2 * 0.3f + noise3 * 0.2f) * 0.5f + 0.5f;
+        return combined;
+    }
+    
     void Init(Vector3 chunkPos, int x, int y, int z, Color *pixels) {
         chunkX = x;
         chunkY = y;
@@ -39,43 +54,26 @@ class Chunk {
         }
         
         for (int x = 0; x < 32; x++) {
-            for (int z = 0; z < 32; z++) {
-                float normalizedHeight = pixels[x + z * 32].r / 255.0f;
-                int height = (int)(normalizedHeight * 16) + 4;
-                
-                for (int y = 0; y < 32 && y+chunkPos.y < height; y++) {
-                    if (y+chunkPos.y == height - 1) {
-                        if (height < 6) {
-                            data[x][y][z] = 2;
-                        } else if (height < 12) {
-                            data[x][y][z] = 1;
-                        } else if (height < 16) {
-                            data[x][y][z] = 3;
-                        } else {
-                            data[x][y][z] = 4;
-                        }
-                    } else if (y+chunkPos.y >= height - 4 && y+chunkPos.y < height - 1) {
-                        if (height < 6) {
-                            data[x][y][z] = 2;
-                        } else {
-                            data[x][y][z] = 3;
-                        }
-                    } else {
-                        if (y+chunkPos.y < 3) {
-                            data[x][y][z] = 5;
-                        } else if (y+chunkPos.y < 6 && GetRandomValue(0, 100) < 10) {
-                            data[x][y][z] = 6;
-                        } else if (y+chunkPos.y < 10 && GetRandomValue(0, 100) < 5) {
-                            data[x][y][z] = 7; 
-                        } else if (y+chunkPos.y < 15 && GetRandomValue(0, 100) < 3) {
-                            data[x][y][z] = 8;
-                        } else {
-                            data[x][y][z] = 3; 
-                        }
+            for (int y = 0; y < 32; y++) {
+                for (int z = 0; z < 32; z++) {
+                    int worldX = x + chunkPos.x;
+                    int worldY = y + chunkPos.y;
+                    int worldZ = z + chunkPos.z;
+                    float caveNoise = GetCaveNoise(worldX, worldY, worldZ);
+                    bool isCave = false;
+                    if (caveNoise > 0.35f && caveNoise < 0.55f) {
+                        isCave = true;
+                    }
+                    if (isCave) {
+                        data[x][y][z] = 0; 
+                    }
+                    else {
+                        data[x][y][z] = 1;
                     }
                 }
             }
         }
+        
         generatedTerrain = true;
     }
     void MeshChunk() {
@@ -199,25 +197,25 @@ class Chunk {
     }
     inline uint16_t getVoxel(int x, int y, int z) {
     if (x >= 0 && x < 32 && y >= 0 && y < 32 && z >= 0 && z < 32) {
-        return data[x][y][z];
+        return this->data[x][y][z];
     }
-        if (x < 0 && neighbors[1] != nullptr) {
-            return neighbors[1]->data[x + 32][y][z];
+        if (x < 0 && this->neighbors[1] != nullptr) {
+            return this->neighbors[1]->data[x + 32][y][z];
         }
-        if (x >= 32 && neighbors[0] != nullptr) {
-            return neighbors[0]->data[x - 32][y][z];
+        if (x >= 32 && this->neighbors[0] != nullptr) {
+            return this->neighbors[0]->data[x - 32][y][z];
         }
-        if (y < 0 && neighbors[3] != nullptr) {
-            return neighbors[3]->data[x][y + 32][z];
+        if (y < 0 && this->neighbors[3] != nullptr) {
+            return this->neighbors[3]->data[x][y + 32][z];
         }
-        if (y >= 32 && neighbors[2] != nullptr) {
-            return neighbors[2]->data[x][y - 32][z];
+        if (y >= 32 && this->neighbors[2] != nullptr) {
+            return this->neighbors[2]->data[x][y - 32][z];
         }
-        if (z < 0 && neighbors[5] != nullptr) {
-            return neighbors[5]->data[x][y][z + 32];
+        if (z < 0 && this->neighbors[5] != nullptr) {
+            return this->neighbors[5]->data[x][y][z + 32];
         }
-        if (z >= 32 && neighbors[4] != nullptr) {
-            return neighbors[4]->data[x][y][z - 32];
+        if (z >= 32 && this->neighbors[4] != nullptr) {
+            return this->neighbors[4]->data[x][y][z - 32];
         }
         
         return 0;
@@ -326,14 +324,14 @@ class App {
         DisableCursor();
         for (int x = 0; x < 10; x++) {
             for (int z = 0; z < 10; z++) {
-                for (int y = 0; y < 10; y++) {
+                for (int y = 0; y < 5; y++) {
                     world.GenerateChunk(x, y, z,0,true);
                 }
             }
         }
         for (int x = 0; x < 10; x++) {
             for (int z = 0; z < 10; z++) {
-                for (int y = 0; y < 10; y++) {
+                for (int y = 0; y < 5; y++) {
 
                      world.SetNeigboursChunk(x,y,z);
                 }
@@ -348,7 +346,7 @@ class App {
             BeginMode3D(camera);
                 
             for (int x = 0; x < 10; x++) {
-                for (int y = 0; y < 10; y++) {
+                for (int y = 0; y < 5; y++) {
                     for (int z = 0; z < 10; z++) {
                         if (!world.chunks[world.getKey(x,y,z)].meshed) {
                             world.chunks[world.getKey(x,y,z)].MeshChunk();
@@ -368,7 +366,7 @@ class App {
                 }
             }
             for (int x = 0; x < 10; x++) {
-                for (int y = 0; y < 10; y++) {
+                for (int y = 0; y < 5; y++) {
                     for (int z = 0; z < 10; z++) {
                         
                         if (world.chunks[world.getKey(x,y,z)].uploaded) {
