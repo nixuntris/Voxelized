@@ -111,12 +111,12 @@ ifeq ($(PLATFORM),PLATFORM_DESKTOP)
     endif
 endif
 
-CFLAGS += -Wall -std=c++14 -D_DEFAULT_SOURCE -Wno-missing-braces
+CFLAGS += -Wall -std=c++14 -D_DEFAULT_SOURCE -Wno-missing-braces -fopenmp
 
 ifeq ($(BUILD_MODE),DEBUG)
-    CFLAGS += -g -O0
+    CFLAGS += -g -O2 -march=native -funroll-loops
 else
-    CFLAGS += -s -O1
+    CFLAGS += -s -O2 -march=native -funroll-loops
 endif
 
 ifeq ($(PLATFORM),PLATFORM_DESKTOP)
