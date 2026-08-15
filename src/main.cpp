@@ -38,6 +38,47 @@ inline static Vector3 GetScreenToWorldRayOptimized(Vector2 position, Camera came
 
     return worldDir;
 }
+const int SIZE = 256;
+struct World {
+    uint8_t voxels[SIZE][SIZE][SIZE];
+    uint8_t accel[SIZE/4][SIZE/4][SIZE/4];
+    World() {
+
+        Image noise = GenImagePerlinNoise(
+            SIZE,
+            SIZE,
+            0.0f, 
+            0.0f, 
+            0.02f 
+        );
+
+        Color *pixels = LoadImageColors(noise);
+
+        for (int x = 0; x < SIZE/4; x++) {
+            for (int z = 0; z < SIZE/4; z++) {
+                for (int y = 0; y < SIZE/4; y++) {
+                    accel[x][y][z] = 0;
+                }
+            }
+        }
+        for (int x = 0; x < SIZE; x++) {
+            for (int z = 0; z < SIZE; z++) {
+
+
+                int height = GetRandomValue(45,50);
+
+
+                for (int y = 0; y < SIZE; y++) {
+                    accel[x/4][y/4][z/4] = 1;
+                    voxels[x][y][z] = (y<height)*GetRandomValue(1,3);
+                }
+            }
+        }
+
+        UnloadImageColors(pixels);
+        UnloadImage(noise);
+    }
+};
 class App {
     public:
     Camera camera;
@@ -46,10 +87,11 @@ class App {
     Texture displayBuffer;
     Vector3 *directionStorage;
     Vector3 *accelerationPosition;
+    World world;
     int *stepStorage;
     App() {
         InitWindow(width,height,"Voxelized");
-        camera.position = (Vector3){ 0.0f, 2.0f, 4.0f };
+        camera.position = (Vector3){ SIZE/2, 50, SIZE/2 };
         camera.target = (Vector3){ 0.0f, 2.0f, 0.0f };
         camera.up = (Vector3){ 0.0f, 1.0f, 0.0f };
         camera.fovy = 60.0f;
@@ -68,7 +110,7 @@ class App {
 
         const int lowWidth  = width / 4;
         const int lowHeight = height / 4;
-
+        const Color colors[10] = {SKYBLUE,WHITE,BLACK,GRAY};
         while (!WindowShouldClose()) {
             BeginDrawing();
             ClearBackground(SKYBLUE);
@@ -108,9 +150,6 @@ class App {
                     accelerationPosition[x + y * lowWidth] = start;
                     stepStorage[x + y * lowWidth] = 0;
 
-                    if (direction.y >= 0.0f)
-                        continue;
-
                     int voxelX = (int)floorf(start.x);
                     int voxelY = (int)floorf(start.y);
                     int voxelZ = (int)floorf(start.z);
@@ -144,9 +183,7 @@ class App {
                         }
 
                         steps++;
-
-                        if (voxelY <= 0)
-                            break;
+                        if (voxelX>=0 && voxelY>=0 && voxelZ>=0 && voxelX<SIZE && voxelY<SIZE && voxelZ<SIZE && world.voxels[voxelX][voxelY][voxelZ]!=0) break;
                     }
 
 
@@ -182,8 +219,8 @@ class App {
                     Vector3 direction =
                         directionStorage[x + y * width];
 
-                    if (direction.y >= 0.0f)
-                        continue;
+                //    if (direction.y >= 0.0f)
+                 //       continue;
 
 
                     int lowX = x / 4;
@@ -228,25 +265,14 @@ class App {
 
                     while (steps < 1000) {
 
-                        if (voxelY <= 0) {
+                        if (voxelX>=0 && voxelY>=0 && voxelZ>=0 && voxelX<SIZE && voxelY<SIZE && voxelZ<SIZE && world.voxels[voxelX][voxelY][voxelZ]!=0) {
+                            
 
-                            if ((voxelX % 2 == 0) ||
-                                (voxelZ % 2 == 0)) {
-
-                                ((unsigned char *)imageBuffer.data)[idx] = WHITE.r;
-                                ((unsigned char *)imageBuffer.data)[idx + 1] =WHITE.g;
-                                ((unsigned char *)imageBuffer.data)[idx + 2] = WHITE.b;
-                            }
-                            else {
-                                ((unsigned char *)imageBuffer.data)[idx] =BLACK.r;
-                                ((unsigned char *)imageBuffer.data)[idx + 1] =BLACK.g;
-                                ((unsigned char *)imageBuffer.data)[idx + 2] = BLACK.b;
-                            }
-
-                            hit = true;
+                            ((unsigned char *)imageBuffer.data)[idx] = colors[world.voxels[voxelX][voxelY][voxelZ]].r;
+                            ((unsigned char *)imageBuffer.data)[idx + 1] = colors[world.voxels[voxelX][voxelY][voxelZ]].g;
+                            ((unsigned char *)imageBuffer.data)[idx + 2] =  colors[world.voxels[voxelX][voxelY][voxelZ]].b;
                             break;
                         }
-
 
                         if (tMaxX < tMaxY && tMaxX < tMaxZ) {
                             voxelX += stepX;
@@ -278,6 +304,6 @@ class App {
 };
 
 int main() {
-    App app;
-    app.Run();
+    App *app = new App;
+    app->Run();
 }
