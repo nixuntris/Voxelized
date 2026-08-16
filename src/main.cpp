@@ -10,12 +10,12 @@
 #include <chrono>
 #include <immintrin.h>
 using Clock = std::chrono::steady_clock;
-
+const float SCALE = 1;
 auto ms = [](auto start, auto end) {
     return std::chrono::duration<double, std::milli>(end - start).count();
 };
-const int width = 1400;
-const int height = 1400;
+const int width = 800;
+const int height = 800;
 
 inline static void GetScreenToWorldRay8(
     float x0, float py, int width, int height, const Matrix &viewInv,
@@ -70,6 +70,7 @@ inline static Vector2 GetWorldToScreenOptimized(Vector3 position, Camera camera,
     return screenPosition;
 }
 const int SIZE = 1024;
+const int RENDERDISTANCE = 1024;
 struct Chunk {
     uint8_t *voxels;
     uint8_t *voxelLightValue;
@@ -87,7 +88,7 @@ struct Chunk {
 };
 struct World {
     Chunk chunks[SIZE/32][SIZE/32][SIZE/32];
-    uint8_t GetVoxel(int x, int y, int z) const {
+    inline uint8_t GetVoxel(int x, int y, int z) const {
             
         int cx = x / 32;
         int cy = y / 32;
@@ -97,6 +98,30 @@ struct World {
         int lz = z % 32;
         if (!chunks[cx][cy][cz].containsBlocks) return 0;
         return chunks[cx][cy][cz].voxels[lx * 32 * 32 + ly * 32 + lz];
+    }
+
+    inline uint8_t GetLightValue(int x, int y, int z) const {
+            
+        int cx = x / 32;
+        int cy = y / 32;
+        int cz = z / 32;
+        int lx = x % 32;
+        int ly = y % 32;
+        int lz = z % 32;
+        if (!chunks[cx][cy][cz].containsBlocks) return 0;
+        return chunks[cx][cy][cz].voxelLightValue[lx * 32 * 32 + ly * 32 + lz];
+    }
+
+    inline void SetLightValue(int x, int y, int z, uint8_t val) const {
+            
+        int cx = x / 32;
+        int cy = y / 32;
+        int cz = z / 32;
+        int lx = x % 32;
+        int ly = y % 32;
+        int lz = z % 32;
+        if (!chunks[cx][cy][cz].containsBlocks) return;
+        chunks[cx][cy][cz].voxelLightValue[lx * 32 * 32 + ly * 32 + lz] = val;
     }
 
     World() {
@@ -124,8 +149,15 @@ struct World {
 
                 int height = GetImageColor(noise,x,z).r;
 
-
-                for (int y = 0; y <= height; y++) {
+                if (GetRandomValue(0,1000)==1) {
+                    for (int i = 0; i < 50; i++) {
+                        chunks[x/32][(height+i)/32][z/32].voxels[(x%32)*32*32+((height+i)%32)*32+z%32] = 3;
+                        chunks[x/32][(height+i)/32][z/32].containsBlocks = true;
+                            
+                        }
+                    }
+            
+                for (int y = height-2; y <= height; y++) {
                     if (height==y) {
                         chunks[x/32][y/32][z/32].voxels[(x%32)*32*32+(y%32)*32+z%32] = GetRandomValue(1,2);
                         chunks[x/32][y/32][z/32].containsBlocks = true;
@@ -152,7 +184,7 @@ struct World {
                 }
             }
         }
-
+        
         UnloadImage(noise);
     }
 };
@@ -170,7 +202,7 @@ class App {
     int *oldStep;
     Vector3 *oldPos;
     App() {
-        InitWindow(width,height,"Voxelized");
+        InitWindow(width*SCALE,height*SCALE,"Voxelized");
         camera.position = (Vector3){ SIZE/2, 128, SIZE/2 };
         camera.target = (Vector3){ 0.0f, 2.0f, 0.0f };
         camera.up = (Vector3){ 0.0f, 1.0f, 0.0f };
@@ -179,6 +211,7 @@ class App {
         matProj = MatrixIdentity();
         matProj = MatrixPerspective(camera.fovy*DEG2RAD, ((double)width/(double)height), 0.01f, 10000.0f);
         imageBuffer = GenImageColor(width,height,BLACK);
+        ImageFormat(&imageBuffer,PIXELFORMAT_UNCOMPRESSED_R8G8B8);
         displayBuffer = LoadTextureFromImage(imageBuffer);
         directionStorage = (Vector3*)MemAlloc(width*height*sizeof(Vector3));
         accelerationPosition = (Vector3*)MemAlloc(width*height*sizeof(Vector3));
@@ -197,7 +230,7 @@ class App {
 
     const int lowWidth  = width / 4;
     const int lowHeight = height / 4;
-    const Color colors[10] = {SKYBLUE,GREEN,{uint8_t(GREEN.r*0.9),uint8_t(GREEN.g*0.9),uint8_t(GREEN.b*0.9),255},GRAY};
+    const Color colors[10] = {SKYBLUE,GREEN,{uint8_t(GREEN.r*0.9),uint8_t(GREEN.g*0.9),uint8_t(GREEN.b*0.9),255},BROWN};
     
     auto frameStart = Clock::now();
     auto totalStart = Clock::now();
@@ -263,9 +296,9 @@ class App {
                 float tMaxZ = (direction.z > 0.0f) ? (((voxelZ + 1) - start.z) / direction.z) : (direction.z < 0.0f) ? ((voxelZ - start.z) / direction.z) : INFINITY;
                 float previousT = 0.0f;
                 int steps = 0;
-                const int safetyBacktrack = 4;
+                const int safetyBacktrack = 16;
                 
-                while (steps < 1000) {
+                while (steps < RENDERDISTANCE) {
                     previousT = fminf(tMaxX, fminf(tMaxY, tMaxZ));
 
                     if (tMaxX < tMaxY && tMaxX < tMaxZ) {
@@ -282,26 +315,12 @@ class App {
                     }
 
                     steps++;
-                    if (tMaxX < tMaxY && tMaxX < tMaxZ) {
-                        voxelX += stepX;
-                        tMaxX += tDeltaX;
-                    }
-                    else if (tMaxZ < tMaxY) {
-                        voxelZ += stepZ;
-                        tMaxZ += tDeltaZ;
-                    }
-                    else {
-                        voxelY += stepY;
-                        tMaxY += tDeltaY;
-                    }
-
-                    steps++;
                     if (voxelX >= 0 && voxelY >= 0 && voxelZ >= 0 && 
                         voxelX < SIZE && voxelY < SIZE && voxelZ < SIZE) {
-                        if (world.GetVoxel(voxelX, voxelY, voxelZ) != 0) break;
+                        if (world.chunks[voxelX/32][voxelY/32][voxelZ/32].containsBlocks) break;
                     }
                     else {
-                        steps = 1000;
+                        steps = RENDERDISTANCE;
                         break;
                     }
                 }
@@ -323,7 +342,7 @@ class App {
         #pragma omp parallel for collapse(2)
         for (int x = 0; x < width; x++) {
             for (int y = 0; y < height; y++) {
-                int idx = (y * imageBuffer.width + x) * 4;
+                int idx = (y * imageBuffer.width + x) * 3;
                 int pixelIndex = x + y * width;
 
                 if ((x + y + frame) % 3 == 0) continue;
@@ -331,7 +350,6 @@ class App {
                 ((unsigned char *)imageBuffer.data)[idx] = SKYBLUE.r;
                 ((unsigned char *)imageBuffer.data)[idx + 1] = SKYBLUE.g;
                 ((unsigned char *)imageBuffer.data)[idx + 2] = SKYBLUE.b;
-                ((unsigned char *)imageBuffer.data)[idx + 3] = 255;
 
                 Vector3 direction = directionStorage[x + y * width];
                 int lowX = x / 4;
@@ -373,7 +391,7 @@ class App {
                             }
                             else {
                                 rayStart = accelerationPosition[lowX + lowY * lowWidth];
-                                startSteps = 0;
+                                startSteps = stepStorage[lowX+lowY*lowWidth];
                             }
                         }
                     }
@@ -408,11 +426,15 @@ class App {
                 int steps = startSteps;
                 bool hitFound = false;
                 
-                while (steps < 1000) {
+                while (steps < RENDERDISTANCE) {
                     if (voxelX >= 0 && voxelY >= 0 && voxelZ >= 0 && 
                         voxelX < SIZE && voxelY < SIZE && voxelZ < SIZE) {
                         
                         if (world.GetVoxel(voxelX, voxelY, voxelZ) != 0) {
+                            float fogDensity = 1.0f;
+                            if (steps>800) {
+                                fogDensity += (float(RENDERDISTANCE)-float(steps))/200.0f;
+                            }
                             oldPos[pixelIndex] = {
                                 (float)voxelX + 0.5f - direction.x * 0.3f,
                                 (float)voxelY + 0.5f - direction.y * 0.3f,
@@ -420,34 +442,40 @@ class App {
                             };
                             oldStep[pixelIndex] = steps;
                             hitFound = true;
-                            
-                            Vector3 start = {
-                                (float)voxelX + 0.5f + sunDirection.x * 0.1f,
-                                (float)voxelY + 0.5f + sunDirection.y * 0.1f,
-                                (float)voxelZ + 0.5f + sunDirection.z * 0.1f
-                            };
                             float strength = 1.0;
-                            for (int k = 0; k < 128; k++) {
-                                start.x += sunDirection.x;
-                                start.y += sunDirection.y;
-                                start.z += sunDirection.z;
-                                
-                                if (start.x >= 0 && start.y >= 0 && start.z >= 0 &&
-                                    start.x < SIZE && start.y < SIZE && start.z < SIZE) {
-                                    if (world.GetVoxel((int)start.x, (int)start.y, (int)start.z) != 0) {
-                                        strength = 0.8f;
-                                        break;
-                                    }
-                                } else {
-                                    break;
+                            if (world.GetLightValue(voxelX,voxelY,voxelZ)!=0) {
+                                if (world.GetLightValue(voxelX,voxelY,voxelZ)==1) {
+                                    strength = 0.8f;
                                 }
                             }
-                            
+                            else {
+                                Vector3 start = {
+                                    (float)voxelX + 0.5f + sunDirection.x * 0.1f,
+                                    (float)voxelY + 0.5f + sunDirection.y * 0.1f,
+                                    (float)voxelZ + 0.5f + sunDirection.z * 0.1f
+                                };
+                                world.SetLightValue(voxelX,voxelY,voxelZ,2);
+                                for (int k = 0; k < 128; k++) {
+                                    start.x += sunDirection.x;
+                                    start.y += sunDirection.y;
+                                    start.z += sunDirection.z;
+                                    
+                                    if (start.x >= 0 && start.y >= 0 && start.z >= 0 &&
+                                        start.x < SIZE && start.y < SIZE && start.z < SIZE) {
+                                        if (world.GetVoxel((int)start.x, (int)start.y, (int)start.z) != 0) {
+                                            strength = 0.8f;
+                                            world.SetLightValue(voxelX,voxelY,voxelZ,1);
+                                            break;
+                                        }
+                                    } else {
+                                        break;
+                                    }
+                                }
+                            }
                             uint8_t type = world.GetVoxel(voxelX, voxelY, voxelZ);
                             ((unsigned char *)imageBuffer.data)[idx] = colors[type].r * strength;
                             ((unsigned char *)imageBuffer.data)[idx + 1] = colors[type].g * strength;
                             ((unsigned char *)imageBuffer.data)[idx + 2] = colors[type].b * strength;
-                            ((unsigned char *)imageBuffer.data)[idx + 3] = 255;
                             break;
                         }
                         
@@ -479,7 +507,11 @@ class App {
         auto renderEnd = Clock::now();
         
         UpdateTexture(displayBuffer, imageBuffer.data);
-        DrawTexture(displayBuffer, 0, 0, WHITE);
+                
+        DrawTexturePro(displayBuffer, 
+            (Rectangle){0, 0, width, height},
+            (Rectangle){0, 0, width*SCALE, height*SCALE},
+            (Vector2){0, 0}, 0, WHITE);
         UpdateCamera(&camera, CAMERA_FREE);
         
         auto loopEnd = Clock::now();
