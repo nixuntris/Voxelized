@@ -14,12 +14,12 @@
 #include <immintrin.h>
 using Clock = std::chrono::steady_clock;
 #define STEP(d, size) (((d) > 1 && (d) != 255) ? (((d) - 1) * (size)) : 0.0f)
-const float SCALE = 1.3;
+const float SCALE = 1;
 auto ms = [](auto start, auto end) {
     return std::chrono::duration<double, std::milli>(end - start).count();
 };
-const int width = 800/SCALE;
-const int height = 800/SCALE;
+const int width = 700/SCALE;
+const int height = 700/SCALE;
 
 inline static void GetScreenToWorldRay8(
     float x0, float py, int width, int height, const Matrix &viewInv,
@@ -73,8 +73,8 @@ inline static Vector2 GetWorldToScreenOptimized(Vector3 position, Camera camera,
 
     return screenPosition;
 }
-const int WORLD_WIDTH = 2048;
-const int WORLD_DEPTH = 2048;
+const int WORLD_WIDTH = 512;
+const int WORLD_DEPTH = 512;
 const int WORLD_HEIGHT = 512;
 const int RENDERDISTANCE = 1024;
 struct VoxelChunk {
@@ -499,9 +499,9 @@ class App {
                 float sz = copysignf(1.0f, direction.z);
 
                 while (t < RENDERDISTANCE ) {
-                    const float voxelX = camera.position.x + direction.x * t;
-                    const float voxelY = camera.position.y + direction.y * t;
-                    const float voxelZ = camera.position.z + direction.z * t;
+                    float voxelX = camera.position.x + direction.x * t;
+                    float voxelY = camera.position.y + direction.y * t;
+                    float voxelZ = camera.position.z + direction.z * t;
 
                     if (voxelX < 0.0f || voxelY < 0.0f || voxelZ < 0.0f ||
                         voxelX >= WORLD_WIDTH || voxelY >= WORLD_HEIGHT || voxelZ >= WORLD_DEPTH) {
@@ -516,13 +516,62 @@ class App {
                         int ly = int(voxelY) % 32;
                         int lz = int(voxelZ) % 32;
                         int index = lx * 32 * 32 + ly * 32 + lz;
-                            
+                        
                         if (world.traversalChunks[cx][cy][cz].occupancy[index >> 6] & (1ull << (index & 63))) {
                             uint8_t type = world.voxelChunks[cx][cy][cz].voxels[index];
+                            
                             if (type != 0) {
-                                ((unsigned char *)imageBuffer.data)[idx] = colors[type].r;
-                                ((unsigned char *)imageBuffer.data)[idx + 1] = colors[type].g;
-                                ((unsigned char *)imageBuffer.data)[idx + 2] = colors[type].b;
+                                float strength = 1;
+                                float t = 0;
+
+                                Vector3 sampleDir = sunDirection;
+                                while (t<128) {
+                                    
+                                    voxelX+=sampleDir.x;
+                                    voxelY+=sampleDir.y;
+                                    voxelZ+=sampleDir.z;
+                                    TraversalChunk& chunk = world.traversalChunks[cx][cy][cz];
+                                    int lx = int(voxelX) % 32;
+                                    int ly = int(voxelY) % 32;
+                                    int lz = int(voxelZ) % 32;
+                                    float jump = std::max({
+                                        STEP(chunk.distanceToClosestVoxel, 32.0f),
+
+                                        STEP(
+                                            chunk.distance16[lx >> 4][ly >> 4][lz >> 4],
+                                            16.0f
+                                        ),
+
+                                        STEP(
+                                            chunk.distance8[lx >> 3][ly >> 3][lz >> 3],
+                                            8.0f
+                                        ),
+
+                                        STEP(
+                                            chunk.distance4[lx >> 2][ly >> 2][lz >> 2],
+                                            4.0f
+                                        )
+                                    }); 
+                                    if (voxelX < 0.0f || voxelY < 0.0f || voxelZ < 0.0f ||
+                                        voxelX >= WORLD_WIDTH || voxelY >= WORLD_HEIGHT || voxelZ >= WORLD_DEPTH) {
+                                        break;
+                                    }
+                                    else {
+                                        if (world.voxelChunks[(int)voxelX/32][(int)voxelY/32][(int)voxelZ/32].containsBlocks) {
+                                                    
+                                            int index = lx * 32 * 32 + ly * 32 + lz;
+                                            if (world.voxelChunks[(int)voxelX/32][(int)voxelY/32][(int)voxelZ/32].voxels[index]!=0) {
+                                                strength = 0.8;
+                                                break;
+                                            }
+                                        }
+                                        t+=jump*2;
+                                    }
+                                
+                                }
+                                ((unsigned char *)imageBuffer.data)[idx] = colors[type].r*strength;
+                                ((unsigned char *)imageBuffer.data)[idx + 1] = colors[type].g*strength;
+                                ((unsigned char *)imageBuffer.data)[idx + 2] = colors[type].b*strength;
                                 break;
                             }
                         }
