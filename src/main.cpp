@@ -14,12 +14,12 @@
 #include <immintrin.h>
 using Clock = std::chrono::steady_clock;
 #define STEP(d, size) (((d) > 1 && (d) != 255) ? (((d) - 1) * (size)) : 0.0f)
-const float SCALE = 1;
+const float SCALE = 1.3;
 auto ms = [](auto start, auto end) {
     return std::chrono::duration<double, std::milli>(end - start).count();
 };
-const int width = 800;
-const int height = 800;
+const int width = 800/SCALE;
+const int height = 800/SCALE;
 
 inline static void GetScreenToWorldRay8(
     float x0, float py, int width, int height, const Matrix &viewInv,
@@ -73,7 +73,9 @@ inline static Vector2 GetWorldToScreenOptimized(Vector3 position, Camera camera,
 
     return screenPosition;
 }
-const int SIZE = 1024;
+const int WORLD_WIDTH = 2048;
+const int WORLD_DEPTH = 2048;
+const int WORLD_HEIGHT = 512;
 const int RENDERDISTANCE = 1024;
 struct VoxelChunk {
     uint8_t *voxels;
@@ -93,11 +95,15 @@ struct VoxelChunk {
 };
 struct TraversalChunk {
     uint8_t distanceToClosestVoxel=0;
-    uint64_t occupancy[512];
+    uint64_t *occupancy;
     uint8_t distance16[2][2][2];
     uint8_t distance8[4][4][4];
     uint8_t distance4[8][8][8];
+    uint64_t occupancy4[8] = {};
+    uint64_t occupancy8 = 0;
+    uint8_t occupancy16 = 0;  
     void BuildOccupancyMask(uint8_t *voxels) {
+        occupancy = (uint64_t*)MemAlloc(512*sizeof(uint64_t));
         for (int i = 0; i < 512; i++) occupancy[i] = 0;
         
         for (int x = 0; x < 32; ++x) {
@@ -107,6 +113,34 @@ struct TraversalChunk {
 
                     if (voxels[index] != 0) {
                         occupancy[index >> 6] |= 1ull << (index & 63);
+                        const int x4 = x >> 2;
+                        const int y4 = y >> 2;
+                        const int z4 = z >> 2;
+
+                        const int index4 =
+                            (x4 << 6) | (y4 << 3) | z4;
+
+                        occupancy4[index4 >> 6] |=
+                            1ull << (index4 & 63);
+                        const int x8 = x >> 3;
+                        const int y8 = y >> 3;
+                        const int z8 = z >> 3;
+
+                        const int index8 =
+                            (x8 << 4) | (y8 << 2) | z8;
+
+                        occupancy8 |=
+                            1ull << index8;
+
+                        const int x16 = x >> 4;
+                        const int y16 = y >> 4;
+                        const int z16 = z >> 4;
+
+                        const int index16 =
+                            (x16 << 2) | (y16 << 1) | z16;
+
+                        occupancy16 |=
+                            uint8_t(1u << index16);
                     }
                 }
             }
@@ -119,8 +153,8 @@ struct TraversalChunk {
     }
 };
 struct World {
-    VoxelChunk voxelChunks[SIZE/32][SIZE/32][SIZE/32];
-    TraversalChunk traversalChunks[SIZE/32][SIZE/32][SIZE/32];
+    VoxelChunk voxelChunks[WORLD_WIDTH/32][WORLD_HEIGHT/32][WORLD_DEPTH/32];
+    TraversalChunk traversalChunks[WORLD_WIDTH/32][WORLD_HEIGHT/32][WORLD_DEPTH/32];
     
     inline uint8_t GetVoxel(int x, int y, int z) const {
             
@@ -158,14 +192,16 @@ struct World {
         voxelChunks[cx][cy][cz].voxelLightValue[lx * 32 * 32 + ly * 32 + lz] = val;
     }
     void BuildDistanceToClosestVoxel() {
-        constexpr int CHUNK_COUNT = SIZE / 32;
+        constexpr int CHUNK_COUNT_X = WORLD_WIDTH / 32;
+        constexpr int CHUNK_COUNT_Y = WORLD_HEIGHT / 32;
+        constexpr int CHUNK_COUNT_Z = WORLD_DEPTH / 32;
 
         struct ChunkPos { int x, y, z; };
         std::queue<ChunkPos> q;
 
-        for (int x = 0; x < CHUNK_COUNT; ++x) {
-            for (int y = 0; y < CHUNK_COUNT; ++y) {
-                for (int z = 0; z < CHUNK_COUNT; ++z) {
+        for (int x = 0; x < CHUNK_COUNT_X; ++x) {
+            for (int y = 0; y < CHUNK_COUNT_Y; ++y) {
+                for (int z = 0; z < CHUNK_COUNT_Z; ++z) {
                     VoxelChunk &voxelChunk = voxelChunks[x][y][z];
                     TraversalChunk &traversalChunk = traversalChunks[x][y][z];
                     if (voxelChunk.containsBlocks) {
@@ -184,7 +220,7 @@ struct World {
 
             const uint8_t current = traversalChunks[p.x][p.y][p.z].distanceToClosestVoxel;
             if (current == 254) continue;
-            const uint8_t nextDistance = static_cast<uint8_t>(current + 1);
+            const uint8_t nextDistance = current + 1;
 
             for (int dx = -1; dx <= 1; ++dx) {
                 for (int dy = -1; dy <= 1; ++dy) {
@@ -195,7 +231,7 @@ struct World {
                         const int ny = p.y + dy;
                         const int nz = p.z + dz;
                         if (nx < 0 || ny < 0 || nz < 0 ||
-                            nx >= CHUNK_COUNT || ny >= CHUNK_COUNT || nz >= CHUNK_COUNT) {
+                            nx >= CHUNK_COUNT_X || ny >= CHUNK_COUNT_Y || nz >= CHUNK_COUNT_Z) {
                             continue;
                         }
 
@@ -209,31 +245,25 @@ struct World {
             }
         }
     }
+    uint8_t *cellPtr(TraversalChunk &chunk, int cellSize) {
 
+        if (cellSize == 16) return &chunk.distance16[0][0][0];
+        if (cellSize == 8) return &chunk.distance8[0][0][0];
+        return &chunk.distance4[0][0][0];
+    }
     void BuildDistanceLayer(int cellSize) {
         const int cellsPerChunk = 32 / cellSize;
-        const int grid = SIZE / cellSize;
+        const int gridX = WORLD_WIDTH / cellSize;
+        const int gridY = WORLD_HEIGHT / cellSize;
+        const int gridZ = WORLD_DEPTH / cellSize;
 
-        auto cellPtr = [&](TraversalChunk &chunk) -> uint8_t* {
-            if (cellSize == 16) return &chunk.distance16[0][0][0];
-            if (cellSize == 8) return &chunk.distance8[0][0][0];
-            return &chunk.distance4[0][0][0];
-        };
 
-        auto distanceRef = [&](int gx, int gy, int gz) -> uint8_t& {
-            TraversalChunk &chunk = traversalChunks[gx / cellsPerChunk][gy / cellsPerChunk][gz / cellsPerChunk];
-            const int x = gx % cellsPerChunk;
-            const int y = gy % cellsPerChunk;
-            const int z = gz % cellsPerChunk;
-            return cellPtr(chunk)[(x * cellsPerChunk + y) * cellsPerChunk + z];
-        };
-
-        for (int cx = 0; cx < SIZE / 32; ++cx) {
-            for (int cy = 0; cy < SIZE / 32; ++cy) {
-                for (int cz = 0; cz < SIZE / 32; ++cz) {
+        for (int cx = 0; cx < WORLD_WIDTH / 32; ++cx) {
+            for (int cy = 0; cy < WORLD_HEIGHT / 32; ++cy) {
+                for (int cz = 0; cz < WORLD_DEPTH / 32; ++cz) {
                     VoxelChunk &voxelChunk = voxelChunks[cx][cy][cz];
                     TraversalChunk &traversalChunk = traversalChunks[cx][cy][cz];
-                    uint8_t *distance = cellPtr(traversalChunk);
+                    uint8_t *distance = cellPtr(traversalChunk,cellSize);
                     std::fill(distance, distance + cellsPerChunk * cellsPerChunk * cellsPerChunk, 255);
                     if (!voxelChunk.containsBlocks) continue;
 
@@ -261,18 +291,17 @@ struct World {
                 }
             }
         }
-
-        for (int x = 0; x < grid; ++x) {
-            for (int y = 0; y < grid; ++y) {
-                for (int z = 0; z < grid; ++z) {
-                    uint8_t &cur = distanceRef(x, y, z);
+        for (int x = 0; x < gridX; ++x) {
+            for (int y = 0; y < gridY; ++y) {
+                for (int z = 0; z < gridZ; ++z) {
+                    uint8_t &cur = cellPtr(traversalChunks[x / cellsPerChunk][y / cellsPerChunk][z/cellsPerChunk],cellSize)[(( x % cellsPerChunk) * cellsPerChunk + ( y % cellsPerChunk)) * cellsPerChunk +( z % cellsPerChunk)];
                     for (int dx = -1; dx <= 1; ++dx) {
                         for (int dy = -1; dy <= 1; ++dy) {
                             for (int dz = -1; dz <= 1; ++dz) {
                                 if (!(dx < 0 || (dx == 0 && dy < 0) || (dx == 0 && dy == 0 && dz < 0))) continue;
                                 const int nx = x + dx, ny = y + dy, nz = z + dz;
-                                if (nx < 0 || ny < 0 || nz < 0 || nx >= grid || ny >= grid || nz >= grid) continue;
-                                const uint8_t n = distanceRef(nx, ny, nz);
+                                if (nx < 0 || ny < 0 || nz < 0 || nx >= gridX || ny >= gridY || nz >= gridZ) continue;
+                                const uint8_t n = cellPtr(traversalChunks[nx / cellsPerChunk][ny / cellsPerChunk][nz/cellsPerChunk],cellSize)[(( nx % cellsPerChunk) * cellsPerChunk + ( ny % cellsPerChunk)) * cellsPerChunk +( nz % cellsPerChunk)];
                                 if (n < 254) cur = std::min<uint8_t>(cur, static_cast<uint8_t>(n + 1));
                             }
                         }
@@ -281,17 +310,17 @@ struct World {
             }
         }
 
-        for (int x = grid - 1; x >= 0; --x) {
-            for (int y = grid - 1; y >= 0; --y) {
-                for (int z = grid - 1; z >= 0; --z) {
-                    uint8_t &cur = distanceRef(x, y, z);
+        for (int x = gridX - 1; x >= 0; --x) {
+            for (int y = gridY - 1; y >= 0; --y) {
+                for (int z = gridZ - 1; z >= 0; --z) {
+                    uint8_t &cur = cellPtr(traversalChunks[x / cellsPerChunk][y / cellsPerChunk][z/cellsPerChunk],cellSize)[(( x % cellsPerChunk) * cellsPerChunk + ( y % cellsPerChunk)) * cellsPerChunk +( z % cellsPerChunk)];
                     for (int dx = -1; dx <= 1; ++dx) {
                         for (int dy = -1; dy <= 1; ++dy) {
                             for (int dz = -1; dz <= 1; ++dz) {
                                 if (!(dx > 0 || (dx == 0 && dy > 0) || (dx == 0 && dy == 0 && dz > 0))) continue;
                                 const int nx = x + dx, ny = y + dy, nz = z + dz;
-                                if (nx < 0 || ny < 0 || nz < 0 || nx >= grid || ny >= grid || nz >= grid) continue;
-                                const uint8_t n = distanceRef(nx, ny, nz);
+                                if (nx < 0 || ny < 0 || nz < 0 || nx >= gridX || ny >= gridY || nz >= gridZ) continue;
+                                const uint8_t n = cellPtr(traversalChunks[nx / cellsPerChunk][ny / cellsPerChunk][nz/cellsPerChunk],cellSize)[(( nx % cellsPerChunk) * cellsPerChunk + ( ny % cellsPerChunk)) * cellsPerChunk +( nz % cellsPerChunk)];
                                 if (n < 254) cur = std::min<uint8_t>(cur, static_cast<uint8_t>(n + 1));
                             }
                         }
@@ -301,9 +330,9 @@ struct World {
         }
     }
     World() {
-        for (int x = 0; x < SIZE/32; x++) {
-            for (int y= 0 ; y < SIZE/32; y++) {
-                for (int z = 0; z < SIZE/32; z++) {
+        for (int x = 0; x < WORLD_WIDTH/32; x++) {
+            for (int y= 0 ; y < WORLD_HEIGHT/32; y++) {
+                for (int z = 0; z < WORLD_DEPTH/32; z++) {
                     voxelChunks[x][y][z].voxels = (uint8_t*)MemAlloc(32*32*32);
                     voxelChunks[x][y][z].Clear();
                     traversalChunks[x][y][z].Clear();
@@ -311,26 +340,30 @@ struct World {
             }
         }
         Image noise = GenImagePerlinNoise(
-            SIZE,
-            SIZE,
+            WORLD_WIDTH,
+            WORLD_DEPTH,
             0.0f, 
             0.0f, 
             0.2f 
         );
 
 #pragma omp parallel for collapse(2)
-        for (int x = 0; x < SIZE; x++) {
-            for (int z = 0; z < SIZE; z++) {
+        for (int x = 0; x < WORLD_WIDTH; x++) {
+            for (int z = 0; z < WORLD_DEPTH; z++) {
                 int height = GetImageColor(noise,x,z).r;
-
+                
                 if (GetRandomValue(0,1000)==1) {
-                    for (int i = 0; i < 50; i++) {
-                        voxelChunks[x/32][(height+i)/32][z/32].voxels[(x%32)*32*32+((height+i)%32)*32+z%32] = 3;
-                        voxelChunks[x/32][(height+i)/32][z/32].containsBlocks = true;
+                    for (int i = 0; i < 50 && height + i < WORLD_HEIGHT; i++) {
                             
-                        }
+                        int cx = x/32;
+                        int cy = (height+i)/32;
+                        int cz = z/32;
+                        voxelChunks[cx][cy][cz].voxels[(x%32)*32*32+((height+i)%32)*32+z%32] = 3;
+                        voxelChunks[cx][cy][cz].containsBlocks = true;
+                            
                     }
-                for (int y = height-2; y <= height; y++) {
+                }
+                for (int y = std::max(0, height-2); y <= height; y++) {
                     int cx = x/32;
                     int cy = y/32;
                     int cz = z/32;
@@ -352,17 +385,10 @@ struct World {
         BuildDistanceLayer(8);
         BuildDistanceLayer(4);
 
-        for (int x = 0; x < SIZE/32; x++) {
-            for (int y= 0 ; y < SIZE/32; y++) {
-                for (int z = 0; z < SIZE/32; z++) {
-                    
-
-                }
-            }
-        }
-        for (int x = 0; x < SIZE/32; x++) {
-            for (int y= 0 ; y < SIZE/32; y++) {
-                for (int z = 0; z < SIZE/32; z++) {
+#pragma omp parallel for collapse(3)
+        for (int x = 0; x < WORLD_WIDTH/32; x++) {
+            for (int y= 0 ; y < WORLD_HEIGHT/32; y++) {
+                for (int z = 0; z < WORLD_DEPTH/32; z++) {
                     if (!voxelChunks[x][y][z].containsBlocks) {
                         MemFree(voxelChunks[x][y][z].voxels);
                         voxelChunks[x][y][z].voxels = nullptr;
@@ -395,7 +421,7 @@ class App {
     float *oldDistance;
     App() {
         InitWindow(width*SCALE,height*SCALE,"Voxelized");
-        camera.position = (Vector3){ SIZE/2, 128, SIZE/2 };
+        camera.position = (Vector3){ WORLD_WIDTH/2, 128, WORLD_DEPTH/2 };
         camera.target = (Vector3){ 0.0f, 2.0f, 0.0f };
         camera.up = (Vector3){ 0.0f, 1.0f, 0.0f };
         camera.fovy = 60.0f;
@@ -454,13 +480,13 @@ class App {
         auto dirEnd = Clock::now();
 
         auto renderStart = Clock::now();
-        #pragma omp parallel for collapse(2)
+        #pragma omp parallel for simd
         for (int x = 0; x < width; x++) {
             for (int y = 0; y < height; y++) {
                 int idx = (y * imageBuffer.width + x) * 3;
                 int pixelIndex = x + y * width;
 
-                if ((x + y + frame) % 3 == 0) continue;
+                if ((x + y + frame) % 2 == 0) continue;
                 
                 ((unsigned char *)imageBuffer.data)[idx] = SKYBLUE.r;
                 ((unsigned char *)imageBuffer.data)[idx + 1] = SKYBLUE.g;
@@ -468,6 +494,9 @@ class App {
 
                 Vector3 direction = directionStorage[pixelIndex];
                 float t = oldDistance[pixelIndex];
+                float sx = copysignf(1.0f, direction.x);
+                float sy = copysignf(1.0f, direction.y);
+                float sz = copysignf(1.0f, direction.z);
 
                 while (t < RENDERDISTANCE ) {
                     const float voxelX = camera.position.x + direction.x * t;
@@ -475,7 +504,7 @@ class App {
                     const float voxelZ = camera.position.z + direction.z * t;
 
                     if (voxelX < 0.0f || voxelY < 0.0f || voxelZ < 0.0f ||
-                        voxelX >= SIZE || voxelY >= SIZE || voxelZ >= SIZE) {
+                        voxelX >= WORLD_WIDTH || voxelY >= WORLD_HEIGHT || voxelZ >= WORLD_DEPTH) {
                         break;
                     }
                                 
@@ -516,7 +545,7 @@ class App {
                     }
                     else {
                         int cellSize = 1;
-
+                        
                         if (chunk.distanceToClosestVoxel != 0) {
                             cellSize = 32;
                         }
@@ -534,28 +563,9 @@ class App {
                         int by = iy & ~(cellSize - 1);
                         int bz = iz & ~(cellSize - 1);
 
-                        float inf = std::numeric_limits<float>::infinity();
-
-                        float tx =
-                            direction.x > 0.0f
-                                ? ((bx + cellSize) - voxelX) / direction.x
-                                : direction.x < 0.0f
-                                    ? (voxelX - bx) / -direction.x
-                                    : inf;
-
-                        float ty =
-                            direction.y > 0.0f
-                                ? ((by + cellSize) - voxelY) / direction.y
-                                : direction.y < 0.0f
-                                    ? (voxelY - by) / -direction.y
-                                    : inf;
-
-                        float tz =
-                            direction.z > 0.0f
-                                ? ((bz + cellSize) - voxelZ) / direction.z
-                                : direction.z < 0.0f
-                                    ? (voxelZ - bz) / -direction.z
-                                    : inf;
+                        float tx = ((sx > 0.0f ? bx + cellSize : bx) - voxelX) / direction.x;
+                        float ty = ((sy > 0.0f ? by + cellSize : by) - voxelY) / direction.y;
+                        float tz = ((sz > 0.0f ? bz + cellSize : bz) - voxelZ) / direction.z;
 
                         t += std::min({tx, ty, tz}) + 0.0001f;
 
