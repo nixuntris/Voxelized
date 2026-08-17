@@ -14,7 +14,7 @@
 #include <immintrin.h>
 using Clock = std::chrono::steady_clock;
 #define STEP(d, size) (((d) > 1 && (d) != 255) ? (((d) - 1) * (size)) : 0.0f)
-const float SCALE = 1;
+const float SCALE = 1.5;
 auto ms = [](auto start, auto end) {
     return std::chrono::duration<double, std::milli>(end - start).count();
 };
@@ -73,8 +73,8 @@ inline static Vector2 GetWorldToScreenOptimized(Vector3 position, Camera camera,
 
     return screenPosition;
 }
-const int WORLD_WIDTH = 512;
-const int WORLD_DEPTH = 512;
+const int WORLD_WIDTH = 1024;
+const int WORLD_DEPTH = 1024;
 const int WORLD_HEIGHT = 512;
 const int RENDERDISTANCE = 1024;
 struct VoxelChunk {
@@ -353,15 +353,47 @@ struct World {
                 int height = GetImageColor(noise,x,z).r;
                 
                 if (GetRandomValue(0,1000)==1) {
-                    for (int i = 0; i < 50 && height + i < WORLD_HEIGHT; i++) {
+                    int dx = 0; 
+                    int dy = 0; 
+                    int treeHeight = GetRandomValue(20,50);
+                    for (int i = 0; i < treeHeight && height + i < WORLD_HEIGHT; i++) {
                             
-                        int cx = x/32;
+                        int cx = (x+dx)/32;
                         int cy = (height+i)/32;
-                        int cz = z/32;
-                        voxelChunks[cx][cy][cz].voxels[(x%32)*32*32+((height+i)%32)*32+z%32] = 3;
+                        int cz = (z+dy)/32;
+                        voxelChunks[cx][cy][cz].voxels[(x+dx)%32*32*32+((height+i)%32)*32+(z+dy)%32] = 3;
                         voxelChunks[cx][cy][cz].containsBlocks = true;
+                        if (GetRandomValue(0,10)==1) {
+                            int dxOff = GetRandomValue(-1,1);
+                            dx+=dxOff;
+                            if (dx+x>WORLD_WIDTH-1 || dx+x<0) dx-=dxOff;
+                                
+                        }
+                        if (GetRandomValue(0,10)==1) {
+                            int dyOff = GetRandomValue(-1,1);
+                            dy+=dyOff;
+                            if (dy+z>WORLD_DEPTH-1 || dy+z<0) dy-=dyOff;
+                        }
+                        
                             
                     }
+                    for (int kx = -5; kx <= 5; kx++) {
+                        for (int kz = -5; kz <= 5; kz++) {
+                            for (int ky = -5; ky <= 5; ky++) {
+                                int worldX = x+dx+kx;
+                                int worldY = height+treeHeight+ky;
+                                int worldZ = z+dy+kz;
+                                if (worldX<0 || worldY<0 || worldZ<0 || worldX>=WORLD_WIDTH || worldZ>=WORLD_DEPTH) continue; 
+                                int cx = (worldX)/32;
+                                int cy = (worldY)/32;
+                                int cz = (worldZ)/32;
+                                voxelChunks[cx][cy][cz].voxels[(worldX)%32*32*32+(worldY%32)*32+(worldZ)%32] = 4;
+                                voxelChunks[cx][cy][cz].containsBlocks = true;
+                                
+                            }
+                        }   
+                    }
+                    
                 }
                 for (int y = std::max(0, height-2); y <= height; y++) {
                     int cx = x/32;
@@ -445,7 +477,7 @@ class App {
     void Run() {
     int frame = 0;
 
-    const Color colors[10] = {SKYBLUE,GREEN,{uint8_t(GREEN.r*0.9),uint8_t(GREEN.g*0.9),uint8_t(GREEN.b*0.9),255},BROWN};
+    const Color colors[10] = {SKYBLUE,GREEN,{uint8_t(GREEN.r*0.9),uint8_t(GREEN.g*0.9),uint8_t(GREEN.b*0.9),255},BROWN,DARKGREEN};
     
     auto totalStart = Clock::now();
     std::cout<<"run\n";
@@ -525,7 +557,7 @@ class App {
                                 float t = 0;
 
                                 Vector3 sampleDir = sunDirection;
-                                while (t<128) {
+                                while (t<256) {
                                     
                                     voxelX+=sampleDir.x;
                                     voxelY+=sampleDir.y;
