@@ -8,6 +8,9 @@
 #include <iostream>
 #include <cmath>
 #include <chrono>
+#include <queue>
+#include <limits>
+#include <algorithm>
 #include <immintrin.h>
 using Clock = std::chrono::steady_clock;
 const float SCALE = 1;
@@ -75,8 +78,17 @@ struct Chunk {
     uint8_t *voxels;
     uint8_t *voxelLightValue;
     bool containsBlocks;
+    uint8_t distanceToClosestVoxel=0;
+
+    uint8_t distance16[2][2][2];
+    uint8_t distance8[4][4][4];
+    uint8_t distance4[8][8][8];
     void Clear() {
         containsBlocks = false;
+        std::fill(&distance16[0][0][0], &distance16[0][0][0] + 8, 255);
+        std::fill(&distance8[0][0][0], &distance8[0][0][0] + 64, 255);
+        std::fill(&distance4[0][0][0], &distance4[0][0][0] + 512, 255);
+
         for (int x = 0; x < 32; x++) {
             for (int y= 0 ; y < 32; y++) {
                 for (int z = 0; z < 32; z++) {
@@ -123,6 +135,175 @@ struct World {
         if (!chunks[cx][cy][cz].containsBlocks) return;
         chunks[cx][cy][cz].voxelLightValue[lx * 32 * 32 + ly * 32 + lz] = val;
     }
+    void BuildDistanceToClosestVoxel() {
+        constexpr int CHUNK_COUNT = SIZE / 32;
+
+        struct ChunkPos { int x, y, z; };
+        std::queue<ChunkPos> q;
+
+        for (int x = 0; x < CHUNK_COUNT; ++x) {
+            for (int y = 0; y < CHUNK_COUNT; ++y) {
+                for (int z = 0; z < CHUNK_COUNT; ++z) {
+                    Chunk &chunk = chunks[x][y][z];
+                    if (chunk.containsBlocks) {
+                        chunk.distanceToClosestVoxel = 0;
+                        q.push({x, y, z});
+                    } else {
+                        chunk.distanceToClosestVoxel = 255;
+                    }
+                }
+            }
+        }
+
+        while (!q.empty()) {
+            ChunkPos p = q.front();
+            q.pop();
+
+            const uint8_t current = chunks[p.x][p.y][p.z].distanceToClosestVoxel;
+            if (current == 254) continue;
+            const uint8_t nextDistance = static_cast<uint8_t>(current + 1);
+
+            for (int dx = -1; dx <= 1; ++dx) {
+                for (int dy = -1; dy <= 1; ++dy) {
+                    for (int dz = -1; dz <= 1; ++dz) {
+                        if (dx == 0 && dy == 0 && dz == 0) continue;
+
+                        const int nx = p.x + dx;
+                        const int ny = p.y + dy;
+                        const int nz = p.z + dz;
+                        if (nx < 0 || ny < 0 || nz < 0 ||
+                            nx >= CHUNK_COUNT || ny >= CHUNK_COUNT || nz >= CHUNK_COUNT) {
+                            continue;
+                        }
+
+                        Chunk &neighbor = chunks[nx][ny][nz];
+                        if (nextDistance < neighbor.distanceToClosestVoxel) {
+                            neighbor.distanceToClosestVoxel = nextDistance;
+                            q.push({nx, ny, nz});
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    void BuildDistanceLayer(int cellSize) {
+        const int cellsPerChunk = 32 / cellSize;
+        const int grid = SIZE / cellSize;
+
+        auto cellPtr = [&](Chunk &chunk) -> uint8_t* {
+            if (cellSize == 16) return &chunk.distance16[0][0][0];
+            if (cellSize == 8) return &chunk.distance8[0][0][0];
+            return &chunk.distance4[0][0][0];
+        };
+
+        auto distanceRef = [&](int gx, int gy, int gz) -> uint8_t& {
+            Chunk &chunk = chunks[gx / cellsPerChunk][gy / cellsPerChunk][gz / cellsPerChunk];
+            const int x = gx % cellsPerChunk;
+            const int y = gy % cellsPerChunk;
+            const int z = gz % cellsPerChunk;
+            return cellPtr(chunk)[(x * cellsPerChunk + y) * cellsPerChunk + z];
+        };
+
+        for (int cx = 0; cx < SIZE / 32; ++cx) {
+            for (int cy = 0; cy < SIZE / 32; ++cy) {
+                for (int cz = 0; cz < SIZE / 32; ++cz) {
+                    Chunk &chunk = chunks[cx][cy][cz];
+                    uint8_t *distance = cellPtr(chunk);
+                    std::fill(distance, distance + cellsPerChunk * cellsPerChunk * cellsPerChunk, 255);
+                    if (!chunk.containsBlocks) continue;
+
+                    for (int sx = 0; sx < cellsPerChunk; ++sx) {
+                        for (int sy = 0; sy < cellsPerChunk; ++sy) {
+                            for (int sz = 0; sz < cellsPerChunk; ++sz) {
+                                bool occupied = false;
+                                const int bx = sx * cellSize;
+                                const int by = sy * cellSize;
+                                const int bz = sz * cellSize;
+
+                                for (int x = 0; x < cellSize && !occupied; ++x)
+                                    for (int y = 0; y < cellSize && !occupied; ++y)
+                                        for (int z = 0; z < cellSize; ++z)
+                                            if (chunk.voxels[(bx + x) * 32 * 32 + (by + y) * 32 + bz + z]) {
+                                                occupied = true;
+                                                break;
+                                            }
+
+                                if (occupied)
+                                    distance[(sx * cellsPerChunk + sy) * cellsPerChunk + sz] = 0;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        for (int x = 0; x < grid; ++x) {
+            for (int y = 0; y < grid; ++y) {
+                for (int z = 0; z < grid; ++z) {
+                    uint8_t &cur = distanceRef(x, y, z);
+                    for (int dx = -1; dx <= 1; ++dx) {
+                        for (int dy = -1; dy <= 1; ++dy) {
+                            for (int dz = -1; dz <= 1; ++dz) {
+                                if (!(dx < 0 || (dx == 0 && dy < 0) || (dx == 0 && dy == 0 && dz < 0))) continue;
+                                const int nx = x + dx, ny = y + dy, nz = z + dz;
+                                if (nx < 0 || ny < 0 || nz < 0 || nx >= grid || ny >= grid || nz >= grid) continue;
+                                const uint8_t n = distanceRef(nx, ny, nz);
+                                if (n < 254) cur = std::min<uint8_t>(cur, static_cast<uint8_t>(n + 1));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        for (int x = grid - 1; x >= 0; --x) {
+            for (int y = grid - 1; y >= 0; --y) {
+                for (int z = grid - 1; z >= 0; --z) {
+                    uint8_t &cur = distanceRef(x, y, z);
+                    for (int dx = -1; dx <= 1; ++dx) {
+                        for (int dy = -1; dy <= 1; ++dy) {
+                            for (int dz = -1; dz <= 1; ++dz) {
+                                if (!(dx > 0 || (dx == 0 && dy > 0) || (dx == 0 && dy == 0 && dz > 0))) continue;
+                                const int nx = x + dx, ny = y + dy, nz = z + dz;
+                                if (nx < 0 || ny < 0 || nz < 0 || nx >= grid || ny >= grid || nz >= grid) continue;
+                                const uint8_t n = distanceRef(nx, ny, nz);
+                                if (n < 254) cur = std::min<uint8_t>(cur, static_cast<uint8_t>(n + 1));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    inline float distanceToClosestVoxel(float x, float y, float z, const Vector3 &dir) const {
+        if (x < 0 || y < 0 || z < 0 || x >= SIZE || y >= SIZE || z >= SIZE) return 0.0f;
+
+        const int ix = (int)x, iy = (int)y, iz = (int)z;
+        const Chunk &chunk = chunks[ix >> 5][iy >> 5][iz >> 5];
+        const int lx = ix & 31, ly = iy & 31, lz = iz & 31;
+
+        auto step = [](uint8_t d, float size) {
+            return d > 1 && d != 255 ? (d - 1) * size : 0.0f;
+        };
+
+        const float jump = std::max({
+            step(chunk.distanceToClosestVoxel, 32.0f),
+            step(chunk.distance16[lx >> 4][ly >> 4][lz >> 4], 16.0f),
+            step(chunk.distance8[lx >> 3][ly >> 3][lz >> 3], 8.0f),
+            step(chunk.distance4[lx >> 2][ly >> 2][lz >> 2], 4.0f)
+        });
+
+        if (jump > 0.0f) return jump;
+
+        const float inf = std::numeric_limits<float>::infinity();
+        const float tx = dir.x > 0.0f ? (ix + 1.0f - x) / dir.x : dir.x < 0.0f ? (x - ix) / -dir.x : inf;
+        const float ty = dir.y > 0.0f ? (iy + 1.0f - y) / dir.y : dir.y < 0.0f ? (y - iy) / -dir.y : inf;
+        const float tz = dir.z > 0.0f ? (iz + 1.0f - z) / dir.z : dir.z < 0.0f ? (z - iz) / -dir.z : inf;
+
+        return std::min({tx, ty, tz}) + 0.0001f;
+    }
 
     World() {
         for (int x = 0; x < SIZE/32; x++) {
@@ -144,9 +325,6 @@ struct World {
 #pragma omp parallel for collapse(2)
         for (int x = 0; x < SIZE; x++) {
             for (int z = 0; z < SIZE; z++) {
-
-                
-
                 int height = GetImageColor(noise,x,z).r;
 
                 if (GetRandomValue(0,1000)==1) {
@@ -169,11 +347,17 @@ struct World {
                 }
             }
         }
+        BuildDistanceToClosestVoxel();
+        BuildDistanceLayer(16);
+        BuildDistanceLayer(8);
+        BuildDistanceLayer(4);
+
         for (int x = 0; x < SIZE/32; x++) {
             for (int y= 0 ; y < SIZE/32; y++) {
                 for (int z = 0; z < SIZE/32; z++) {
                     if (!chunks[x][y][z].containsBlocks) {
-                        free(chunks[x][y][z].voxels);
+                        MemFree(chunks[x][y][z].voxels);
+                        chunks[x][y][z].voxels = nullptr;
                     }
                     else {
                         chunks[x][y][z].voxelLightValue = (uint8_t*)MemAlloc(32*32*32); 
@@ -228,11 +412,8 @@ class App {
     void Run() {
     int frame = 0;
 
-    const int lowWidth  = width / 4;
-    const int lowHeight = height / 4;
     const Color colors[10] = {SKYBLUE,GREEN,{uint8_t(GREEN.r*0.9),uint8_t(GREEN.g*0.9),uint8_t(GREEN.b*0.9),255},BROWN};
     
-    auto frameStart = Clock::now();
     auto totalStart = Clock::now();
     
     while (!WindowShouldClose()) {
@@ -261,82 +442,11 @@ class App {
                 GetScreenToWorldRay8((float)x, (float)y, width, height, viewInv, xs, ys, zs);
                 for (int i = 0; i < 8; i++) {
                     int px = x + i;
-                    if ((px + y + frame) % 2 == 0) continue;
                     directionStorage[px + y * width] = { xs[i], ys[i], zs[i] };
                 }
             }
         }
         auto dirEnd = Clock::now();
-
-        auto accelStart = Clock::now();
-        #pragma omp parallel for collapse(2)
-        for (int x = 0; x < lowWidth; x++) {
-            for (int y = 0; y < lowHeight; y++) {
-                if ((x + y + frame) % 2 == 0) continue; 
-                int sampleX = x * 4 + 2;
-                int sampleY = y * 4 + 2;
-
-                Vector3 direction = directionStorage[sampleX + sampleY * width];
-                Vector3 start = camera.position;
-
-                accelerationPosition[x + y * lowWidth] = start;
-                stepStorage[x + y * lowWidth] = 0;
-
-                int voxelX = (int)floorf(start.x);
-                int voxelY = (int)floorf(start.y);
-                int voxelZ = (int)floorf(start.z);
-                int stepX = (direction.x > 0.0f) - (direction.x < 0.0f);
-                int stepZ = (direction.z > 0.0f) - (direction.z < 0.0f);
-                int stepY = (direction.y > 0.0f) - (direction.y < 0.0f);
-                float tDeltaX = (direction.x != 0.0f) ? fabsf(1.0f / direction.x) : INFINITY;
-                float tDeltaY = fabsf(1.0f / direction.y);
-                float tDeltaZ = (direction.z != 0.0f) ? fabsf(1.0f / direction.z) : INFINITY;
-                float tMaxX = (direction.x > 0.0f) ? (((voxelX + 1) - start.x) / direction.x) : (direction.x < 0.0f) ? ((voxelX - start.x) / direction.x) : INFINITY;
-                float tMaxY = (direction.y < 0.0f) ? ((voxelY - start.y) / direction.y) : ((voxelY + 1 - start.y) / direction.y);
-                float tMaxZ = (direction.z > 0.0f) ? (((voxelZ + 1) - start.z) / direction.z) : (direction.z < 0.0f) ? ((voxelZ - start.z) / direction.z) : INFINITY;
-                float previousT = 0.0f;
-                int steps = 0;
-                const int safetyBacktrack = 16;
-                
-                while (steps < RENDERDISTANCE) {
-                    previousT = fminf(tMaxX, fminf(tMaxY, tMaxZ));
-
-                    if (tMaxX < tMaxY && tMaxX < tMaxZ) {
-                        voxelX += stepX;
-                        tMaxX += tDeltaX;
-                    }
-                    else if (tMaxZ < tMaxY) {
-                        voxelZ += stepZ;
-                        tMaxZ += tDeltaZ;
-                    }
-                    else {
-                        voxelY += stepY;
-                        tMaxY += tDeltaY;
-                    }
-
-                    steps++;
-                    if (voxelX >= 0 && voxelY >= 0 && voxelZ >= 0 && 
-                        voxelX < SIZE && voxelY < SIZE && voxelZ < SIZE) {
-                        if (world.chunks[voxelX/32][voxelY/32][voxelZ/32].containsBlocks) break;
-                    }
-                    else {
-                        steps = RENDERDISTANCE;
-                        break;
-                    }
-                }
-                
-                float safeT = fmaxf(0.0f, previousT - (float)safetyBacktrack);
-                Vector3 accelerationPoint = {
-                    start.x + direction.x * safeT,
-                    start.y + direction.y * safeT,
-                    start.z + direction.z * safeT
-                };
-
-                accelerationPosition[x + y * lowWidth] = accelerationPoint;
-                stepStorage[x + y * lowWidth] = steps;
-            }
-        }
-        auto accelEnd = Clock::now();
 
         auto renderStart = Clock::now();
         #pragma omp parallel for collapse(2)
@@ -351,156 +461,30 @@ class App {
                 ((unsigned char *)imageBuffer.data)[idx + 1] = SKYBLUE.g;
                 ((unsigned char *)imageBuffer.data)[idx + 2] = SKYBLUE.b;
 
-                Vector3 direction = directionStorage[x + y * width];
-                int lowX = x / 4;
-                int lowY = y / 4;
+                Vector3 direction = directionStorage[pixelIndex];
+                float t = 0.0f;
+                int steps = 0;
 
-                Vector3 rayStart = accelerationPosition[lowX + lowY * lowWidth];
-                
-                int startSteps = stepStorage[lowX + lowY * lowWidth];
-                
-                bool hasOldData = (oldPos[pixelIndex].x != -1) && (oldStep[pixelIndex] > 0);
-                
-                if (hasOldData && frame % 2 == 1) { 
-                    Vector3 oldWorldPos = oldPos[pixelIndex];
-                    
-                    Vector3 offset = {
-                        oldWorldPos.x - camera.position.x,
-                        oldWorldPos.y - camera.position.y,
-                        oldWorldPos.z - camera.position.z
-                    };
-                    
-                    float t = Vector3DotProduct(offset, direction);
-                    
-                    if (t > 0) {
-                        Vector3 pushedPos = {
-                            camera.position.x + direction.x * t,
-                            camera.position.y + direction.y * t,
-                            camera.position.z + direction.z * t
-                        };
-                        
-                        int px = (int)floorf(pushedPos.x);
-                        int py = (int)floorf(pushedPos.y);
-                        int pz = (int)floorf(pushedPos.z);
-                        
-                        if (px >= 0 && py >= 0 && pz >= 0 && 
-                            px < SIZE && py < SIZE && pz < SIZE) {
-                            if (world.GetVoxel(px, py, pz) == 0) {
-                                rayStart = pushedPos;
-                                if (oldStep[pixelIndex]-5>0) startSteps = oldStep[pixelIndex]-5;
-                            }
-                            else {
-                                rayStart = accelerationPosition[lowX + lowY * lowWidth];
-                                startSteps = stepStorage[lowX+lowY*lowWidth];
-                            }
-                        }
-                    }
-                }
+                while (t < RENDERDISTANCE ) {
+                    const float voxelX = camera.position.x + direction.x * t;
+                    const float voxelY = camera.position.y + direction.y * t;
+                    const float voxelZ = camera.position.z + direction.z * t;
 
-                const float boundaryEps = 1e-4f;
-                Vector3 actualStart = {
-                    rayStart.x + direction.x * boundaryEps,
-                    rayStart.y + direction.y * boundaryEps,
-                    rayStart.z + direction.z * boundaryEps
-                };
-
-                int voxelX = (int)floorf(actualStart.x);
-                int voxelY = (int)floorf(actualStart.y);
-                int voxelZ = (int)floorf(actualStart.z);
-
-                int stepX = (direction.x > 0.0f) - (direction.x < 0.0f);
-                int stepY = (direction.y > 0.0f) - (direction.y < 0.0f);
-                int stepZ = (direction.z > 0.0f) - (direction.z < 0.0f);
-
-                float tDeltaX = (direction.x != 0.0f) ? fabsf(1.0f / direction.x) : INFINITY;
-                float tDeltaY = fabsf(1.0f / direction.y);
-                float tDeltaZ = (direction.z != 0.0f) ? fabsf(1.0f / direction.z) : INFINITY;
-
-                float tMaxX = (direction.x > 0.0f) ? (((voxelX + 1) - actualStart.x) / direction.x) : 
-                              (direction.x < 0.0f) ? ((voxelX - actualStart.x) / direction.x) : INFINITY;
-                float tMaxY = (direction.y < 0.0f) ? ((voxelY - actualStart.y) / direction.y) : 
-                              ((voxelY + 1 - actualStart.y) / direction.y);
-                float tMaxZ = (direction.z > 0.0f) ? (((voxelZ + 1) - actualStart.z) / direction.z) : 
-                              (direction.z < 0.0f) ? ((voxelZ - actualStart.z) / direction.z) : INFINITY;
-
-                int steps = startSteps;
-                bool hitFound = false;
-                
-                while (steps < RENDERDISTANCE) {
-                    if (voxelX >= 0 && voxelY >= 0 && voxelZ >= 0 && 
-                        voxelX < SIZE && voxelY < SIZE && voxelZ < SIZE) {
-                        
-                        if (world.GetVoxel(voxelX, voxelY, voxelZ) != 0) {
-                            float fogDensity = 1.0f;
-                            if (steps>800) {
-                                fogDensity += (float(RENDERDISTANCE)-float(steps))/200.0f;
-                            }
-                            oldPos[pixelIndex] = {
-                                (float)voxelX + 0.5f - direction.x * 0.3f,
-                                (float)voxelY + 0.5f - direction.y * 0.3f,
-                                (float)voxelZ + 0.5f - direction.z * 0.3f
-                            };
-                            oldStep[pixelIndex] = steps;
-                            hitFound = true;
-                            float strength = 1.0;
-                            if (world.GetLightValue(voxelX,voxelY,voxelZ)!=0) {
-                                if (world.GetLightValue(voxelX,voxelY,voxelZ)==1) {
-                                    strength = 0.8f;
-                                }
-                            }
-                            else {
-                                Vector3 start = {
-                                    (float)voxelX + 0.5f + sunDirection.x * 0.1f,
-                                    (float)voxelY + 0.5f + sunDirection.y * 0.1f,
-                                    (float)voxelZ + 0.5f + sunDirection.z * 0.1f
-                                };
-                                world.SetLightValue(voxelX,voxelY,voxelZ,2);
-                                for (int k = 0; k < 128; k++) {
-                                    start.x += sunDirection.x;
-                                    start.y += sunDirection.y;
-                                    start.z += sunDirection.z;
-                                    
-                                    if (start.x >= 0 && start.y >= 0 && start.z >= 0 &&
-                                        start.x < SIZE && start.y < SIZE && start.z < SIZE) {
-                                        if (world.GetVoxel((int)start.x, (int)start.y, (int)start.z) != 0) {
-                                            strength = 0.8f;
-                                            world.SetLightValue(voxelX,voxelY,voxelZ,1);
-                                            break;
-                                        }
-                                    } else {
-                                        break;
-                                    }
-                                }
-                            }
-                            uint8_t type = world.GetVoxel(voxelX, voxelY, voxelZ);
-                            ((unsigned char *)imageBuffer.data)[idx] = colors[type].r * strength;
-                            ((unsigned char *)imageBuffer.data)[idx + 1] = colors[type].g * strength;
-                            ((unsigned char *)imageBuffer.data)[idx + 2] = colors[type].b * strength;
-                            break;
-                        }
-                        
-                        if (tMaxX < tMaxY && tMaxX < tMaxZ) {
-                            voxelX += stepX;
-                            tMaxX += tDeltaX;
-                        }
-                        else if (tMaxZ < tMaxY) {
-                            voxelZ += stepZ;
-                            tMaxZ += tDeltaZ;
-                        }
-                        else {
-                            voxelY += stepY;
-                            tMaxY += tDeltaY;
-                        }
-                    }
-                    else {
+                    if (voxelX < 0.0f || voxelY < 0.0f || voxelZ < 0.0f ||
+                        voxelX >= SIZE || voxelY >= SIZE || voxelZ >= SIZE) {
                         break;
                     }
-                    steps++;
-                }
-                
-                if (!hitFound) {
-                    oldPos[pixelIndex] = {-1, -1, -1};
-                    oldStep[pixelIndex] = -1;
+
+                    const uint8_t type = world.GetVoxel(voxelX, voxelY, voxelZ);
+                    if (type != 0) {
+                        ((unsigned char *)imageBuffer.data)[idx] = colors[type].r;
+                        ((unsigned char *)imageBuffer.data)[idx + 1] = colors[type].g;
+                        ((unsigned char *)imageBuffer.data)[idx + 2] = colors[type].b;
+                        break;
+                    }
+
+                    t += world.distanceToClosestVoxel(voxelX, voxelY, voxelZ, direction);
+                    ++steps;
                 }
             }
         }
@@ -517,12 +501,11 @@ class App {
         auto loopEnd = Clock::now();
         
         double dirTime = ms(dirStart, dirEnd);
-        double accelTime = ms(accelStart, accelEnd);
         double renderTime = ms(renderStart, renderEnd);
         double loopTime = ms(loopStart, loopEnd);
         double totalTime = ms(totalStart, loopEnd);
         
-        std::cout << "Frame " << frame << " | Direction: " << dirTime << "ms | Acceleration: " << accelTime << "ms | Render: " << renderTime << "ms | Total Loop: " << loopTime << "ms | Total Runtime: " << totalTime << "ms" << std::endl;
+        std::cout << "Frame " << frame << " | Direction: " << dirTime  << "ms | Render: " << renderTime << "ms | Total Loop: " << loopTime << "ms | Total Runtime: " << totalTime << "ms" << std::endl;
         
         DrawFPS(0, 0);
 
