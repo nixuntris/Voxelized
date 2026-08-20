@@ -21,11 +21,17 @@ using Clock = std::chrono::steady_clock;
     return sqrtf(dx * dx + dy * dy + dz * dz);    \
 }())
 const float SCALE = 1;
+const float FOVY = 120.0f;
 auto ms = [](auto start, auto end) {
     return std::chrono::duration<double, std::milli>(end - start).count();
 };
 const int width = 700/SCALE;
 const int height = 700/SCALE;
+const float PIXEL_WORLD_SLOPE = 2.0f * tanf(FOVY * 0.5f * DEG2RAD) / width;
+const float LOD2_START  = 2.0f  / PIXEL_WORLD_SLOPE;
+const float LOD4_START  = 4.0f  / PIXEL_WORLD_SLOPE;
+const float LOD8_START  = 8.0f  / PIXEL_WORLD_SLOPE;
+const float LOD16_START = 16.0f / PIXEL_WORLD_SLOPE;
 
 inline static void GetScreenToWorldRay8(
     float x0, float py, int width, int height, const Matrix &viewInv,
@@ -484,7 +490,7 @@ class App {
         camera.position = (Vector3){ WORLD_WIDTH/2, 128, WORLD_DEPTH/2 };
         camera.target = (Vector3){ 0.0f, 2.0f, 0.0f };
         camera.up = (Vector3){ 0.0f, 1.0f, 0.0f };
-        camera.fovy = 60.0f;
+        camera.fovy = FOVY;
         camera.projection = CAMERA_PERSPECTIVE;
         matProj = MatrixIdentity();
         matProj = MatrixPerspective(camera.fovy*DEG2RAD, ((double)width/(double)height), 0.01f, 10000.0f);
@@ -498,359 +504,359 @@ class App {
         for (int i = 0; i < width*height; i++) {
             oldStep[i] = 0;
             oldDistance[i] = 0;
-
         }
         DisableCursor();
+        std::cout<<LOD2_START<<" "<<LOD4_START<<" "<<LOD8_START<<" "<<LOD16_START<<"\n";
     }
     void Run() {
-    int frame = 0;
+        int frame = 0;
 
-    const Color colors[10] = {SKYBLUE,GREEN,{uint8_t(GREEN.r*0.9),uint8_t(GREEN.g*0.9),uint8_t(GREEN.b*0.9),255},BROWN,DARKGREEN};
-    
-    auto totalStart = Clock::now();
-    bool lowResPass = false;
-    while (!WindowShouldClose()) {
-        auto loopStart = Clock::now();
-        BeginDrawing();
-        ClearBackground(SKYBLUE);
-
-        Matrix matView = MatrixLookAt(camera.position, camera.target, camera.up);
-        Matrix viewInv = MatrixInvert(matView);
-
-        frame++;
+        const Color colors[10] = {SKYBLUE,GREEN,{uint8_t(GREEN.r*0.9),uint8_t(GREEN.g*0.9),uint8_t(GREEN.b*0.9),255},BROWN,DARKGREEN};
         
-        auto dirStart = Clock::now();
-        #pragma omp parallel for
-        for (int y = 0; y < height; y++) {
-            alignas(32) float xs[8], ys[8], zs[8];
+        auto totalStart = Clock::now();
+        bool lowResPass = false;
+        while (!WindowShouldClose()) {
+            auto loopStart = Clock::now();
+            BeginDrawing();
+            ClearBackground(SKYBLUE);
 
-            int x = 0;
-            for (; x + 7 < width; x += 8) {
-                GetScreenToWorldRay8((float)x, (float)y, width, height, viewInv, xs, ys, zs);
-                for (int i = 0; i < 8; i++) {
-                    int px = x + i;
-                    directionStorage[px + y * width] = { xs[i], ys[i], zs[i] };
-                }
-            }
+            Matrix matView = MatrixLookAt(camera.position, camera.target, camera.up);
+            Matrix viewInv = MatrixInvert(matView);
 
-            if (x < width) {
-                const int tailX = width - 8;
-                GetScreenToWorldRay8((float)tailX, (float)y, width, height, viewInv, xs, ys, zs);
-                for (int i = 0; i < 8; i++) {
-                    int px = tailX + i;
-                    directionStorage[px + y * width] = { xs[i], ys[i], zs[i] };
-                }
-            }
-        }
-        auto dirEnd = Clock::now();
-        std::fill(oldDistance, oldDistance + width * height, 0.0f);
-        if (IsKeyPressed(KEY_F)) lowResPass = !lowResPass;
-        std::cout<<lowResPass<<"\n";
-        if (lowResPass) {
+            frame++;
             
-            constexpr int LOW_SCALE = 4;
-            constexpr float CONE_GUARD = 1.5f;
+            auto dirStart = Clock::now();
+            #pragma omp parallel for
+            for (int y = 0; y < height; y++) {
+                alignas(32) float xs[8], ys[8], zs[8];
 
-            #pragma omp parallel for collapse(2)
-            for (int by = 0; by < height / LOW_SCALE; ++by) {
-                for (int bx = 0; bx < width / LOW_SCALE; ++bx) {
-                    const int baseX = bx * LOW_SCALE;
-                    const int baseY = by * LOW_SCALE;
+                int x = 0;
+                for (; x + 7 < width; x += 8) {
+                    GetScreenToWorldRay8((float)x, (float)y, width, height, viewInv, xs, ys, zs);
+                    for (int i = 0; i < 8; i++) {
+                        int px = x + i;
+                        directionStorage[px + y * width] = { xs[i], ys[i], zs[i] };
+                    }
+                }
 
-                    const Vector3 d00 = directionStorage[(baseX + 0) + (baseY + 0) * width];
-                    const Vector3 d30 = directionStorage[(baseX + 3) + (baseY + 0) * width];
-                    const Vector3 d03 = directionStorage[(baseX + 0) + (baseY + 3) * width];
-                    const Vector3 d33 = directionStorage[(baseX + 3) + (baseY + 3) * width];
+                if (x < width) {
+                    const int tailX = width - 8;
+                    GetScreenToWorldRay8((float)tailX, (float)y, width, height, viewInv, xs, ys, zs);
+                    for (int i = 0; i < 8; i++) {
+                        int px = tailX + i;
+                        directionStorage[px + y * width] = { xs[i], ys[i], zs[i] };
+                    }
+                }
+            }
+            auto dirEnd = Clock::now();
+            std::fill(oldDistance, oldDistance + width * height, 0.0f);
+            if (IsKeyPressed(KEY_F)) lowResPass = !lowResPass;
+            std::cout<<lowResPass<<"\n";
+            if (lowResPass) {
+                
+                constexpr int LOW_SCALE = 4;
+                constexpr float CONE_GUARD = 1.5f;
 
-                    Vector3 direction = Vector3Normalize({
-                        d00.x + d30.x + d03.x + d33.x,
-                        d00.y + d30.y + d03.y + d33.y,
-                        d00.z + d30.z + d03.z + d33.z
-                    });
+                #pragma omp parallel for collapse(2)
+                for (int by = 0; by < height / LOW_SCALE; ++by) {
+                    for (int bx = 0; bx < width / LOW_SCALE; ++bx) {
+                        const int baseX = bx * LOW_SCALE;
+                        const int baseY = by * LOW_SCALE;
 
-                    const float coneSlope = std::max({
-                        DIRECTION_DELTA(d00), DIRECTION_DELTA(d30),
-                        DIRECTION_DELTA(d03), DIRECTION_DELTA(d33)
-                    });
+                        const Vector3 d00 = directionStorage[(baseX + 0) + (baseY + 0) * width];
+                        const Vector3 d30 = directionStorage[(baseX + 3) + (baseY + 0) * width];
+                        const Vector3 d03 = directionStorage[(baseX + 0) + (baseY + 3) * width];
+                        const Vector3 d33 = directionStorage[(baseX + 3) + (baseY + 3) * width];
 
-                    float t = 0.0f;
+                        Vector3 direction = Vector3Normalize({
+                            d00.x + d30.x + d03.x + d33.x,
+                            d00.y + d30.y + d03.y + d33.y,
+                            d00.z + d30.z + d03.z + d33.z
+                        });
 
-                    while (t < RENDERDISTANCE) {
-                        const float voxelX = camera.position.x + direction.x * t;
-                        const float voxelY = camera.position.y + direction.y * t;
-                        const float voxelZ = camera.position.z + direction.z * t;
+                        const float coneSlope = std::max({
+                            DIRECTION_DELTA(d00), DIRECTION_DELTA(d30),
+                            DIRECTION_DELTA(d03), DIRECTION_DELTA(d33)
+                        });
+
+                        float t = 0.0f;
+
+                        while (t < RENDERDISTANCE) {
+                            const float voxelX = camera.position.x + direction.x * t;
+                            const float voxelY = camera.position.y + direction.y * t;
+                            const float voxelZ = camera.position.z + direction.z * t;
+
+                            if (voxelX < 0.0f || voxelY < 0.0f || voxelZ < 0.0f ||
+                                voxelX >= WORLD_WIDTH || voxelY >= WORLD_HEIGHT || voxelZ >= WORLD_DEPTH) {
+                                break;
+                            }
+
+                            const int ix = (int)voxelX;
+                            const int iy = (int)voxelY;
+                            const int iz = (int)voxelZ;
+                            TraversalChunk &chunk = world.traversalChunks[ix >> 5][iy >> 5][iz >> 5];
+                            const int lx = ix & 31;
+                            const int ly = iy & 31;
+                            const int lz = iz & 31;
+
+                            const float jump = std::max({
+                                STEP(chunk.distanceToClosestVoxel, 32.0f),
+                                STEP(chunk.distance16[lx >> 4][ly >> 4][lz >> 4], 16.0f),
+                                STEP(chunk.distance8[lx >> 3][ly >> 3][lz >> 3], 8.0f),
+                                STEP(chunk.distance4[lx >> 2][ly >> 2][lz >> 2], 4.0f)
+                            });
+                            const float coneRadius = t * coneSlope + CONE_GUARD;
+                            const float remainingSafe = jump - coneRadius;
+                            if (remainingSafe <= 0.0f) break;
+
+                            const float advance = remainingSafe / (1.0f + coneSlope);
+                            if (advance <= 0.0001f) break;
+
+                            t += advance;
+                        }
+
+                        const float seedT = std::max(0.0f, t - 0.25f);
+                        for (int dy = 0; dy < LOW_SCALE; ++dy) {
+                            for (int dx = 0; dx < LOW_SCALE; ++dx) {
+                                oldDistance[(baseX + dx) + (baseY + dy) * width] = seedT;
+                            }
+                        }
+                    }
+                }
+            }
+            
+            auto renderStart = Clock::now();
+            #pragma omp parallel for simd
+            for (int x = 0; x < width; x++) {
+                for (int y = 0; y < height; y++) {
+                    int idx = (y * imageBuffer.width + x) * 3;
+                    int pixelIndex = x + y * width;
+
+                    if ((x + y + frame) % 2 == 0) continue;
+                    
+                    ((unsigned char *)imageBuffer.data)[idx] = SKYBLUE.r;
+                    ((unsigned char *)imageBuffer.data)[idx + 1] = SKYBLUE.g;
+                    ((unsigned char *)imageBuffer.data)[idx + 2] = SKYBLUE.b;
+
+                    Vector3 direction = directionStorage[pixelIndex];
+                    float t = oldDistance[pixelIndex];
+                    float sx = copysignf(1.0f, direction.x);
+                    float sy = copysignf(1.0f, direction.y);
+                    float sz = copysignf(1.0f, direction.z);
+
+                    while (t < RENDERDISTANCE ) {
+                        float voxelX = camera.position.x + direction.x * t;
+                        float voxelY = camera.position.y + direction.y * t;
+                        float voxelZ = camera.position.z + direction.z * t;
 
                         if (voxelX < 0.0f || voxelY < 0.0f || voxelZ < 0.0f ||
                             voxelX >= WORLD_WIDTH || voxelY >= WORLD_HEIGHT || voxelZ >= WORLD_DEPTH) {
                             break;
                         }
-
-                        const int ix = (int)voxelX;
-                        const int iy = (int)voxelY;
-                        const int iz = (int)voxelZ;
-                        TraversalChunk &chunk = world.traversalChunks[ix >> 5][iy >> 5][iz >> 5];
-                        const int lx = ix & 31;
-                        const int ly = iy & 31;
-                        const int lz = iz & 31;
-
-                        const float jump = std::max({
-                            STEP(chunk.distanceToClosestVoxel, 32.0f),
-                            STEP(chunk.distance16[lx >> 4][ly >> 4][lz >> 4], 16.0f),
-                            STEP(chunk.distance8[lx >> 3][ly >> 3][lz >> 3], 8.0f),
-                            STEP(chunk.distance4[lx >> 2][ly >> 2][lz >> 2], 4.0f)
-                        });
-                        const float coneRadius = t * coneSlope + CONE_GUARD;
-                        const float remainingSafe = jump - coneRadius;
-                        if (remainingSafe <= 0.0f) break;
-
-                        const float advance = remainingSafe / (1.0f + coneSlope);
-                        if (advance <= 0.0001f) break;
-
-                        t += advance;
-                    }
-
-                    const float seedT = std::max(0.0f, t - 0.25f);
-                    for (int dy = 0; dy < LOW_SCALE; ++dy) {
-                        for (int dx = 0; dx < LOW_SCALE; ++dx) {
-                            oldDistance[(baseX + dx) + (baseY + dy) * width] = seedT;
-                        }
-                    }
-                }
-            }
-        }
-        
-        auto renderStart = Clock::now();
-        #pragma omp parallel for simd
-        for (int x = 0; x < width; x++) {
-            for (int y = 0; y < height; y++) {
-                int idx = (y * imageBuffer.width + x) * 3;
-                int pixelIndex = x + y * width;
-
-                if ((x + y + frame) % 2 == 0) continue;
-                
-                ((unsigned char *)imageBuffer.data)[idx] = SKYBLUE.r;
-                ((unsigned char *)imageBuffer.data)[idx + 1] = SKYBLUE.g;
-                ((unsigned char *)imageBuffer.data)[idx + 2] = SKYBLUE.b;
-
-                Vector3 direction = directionStorage[pixelIndex];
-                float t = oldDistance[pixelIndex];
-                float sx = copysignf(1.0f, direction.x);
-                float sy = copysignf(1.0f, direction.y);
-                float sz = copysignf(1.0f, direction.z);
-
-                while (t < RENDERDISTANCE ) {
-                    float voxelX = camera.position.x + direction.x * t;
-                    float voxelY = camera.position.y + direction.y * t;
-                    float voxelZ = camera.position.z + direction.z * t;
-
-                    if (voxelX < 0.0f || voxelY < 0.0f || voxelZ < 0.0f ||
-                        voxelX >= WORLD_WIDTH || voxelY >= WORLD_HEIGHT || voxelZ >= WORLD_DEPTH) {
-                        break;
-                    }
-                                
-                    int cx = voxelX / 32;
-                    int cy = voxelY / 32;
-                    int cz = voxelZ / 32;
-                    if (world.voxelChunks[cx][cy][cz].containsBlocks) {
-                        int lx = int(voxelX) % 32;
-                        int ly = int(voxelY) % 32;
-                        int lz = int(voxelZ) % 32;
-                        int index = lx * 32 * 32 + ly * 32 + lz;
-                        
-                        if (world.traversalChunks[cx][cy][cz].occupancy[index >> 6] & (1ull << (index & 63))) {
-                            uint8_t type = world.voxelChunks[cx][cy][cz].voxels[index];
+                                    
+                        int cx = voxelX / 32;
+                        int cy = voxelY / 32;
+                        int cz = voxelZ / 32;
+                        if (world.voxelChunks[cx][cy][cz].containsBlocks) {
+                            int lx = int(voxelX) % 32;
+                            int ly = int(voxelY) % 32;
+                            int lz = int(voxelZ) % 32;
+                            int index = lx * 32 * 32 + ly * 32 + lz;
                             
-                            if (type != 0) {
-                                float strength = 1;
-                                float t = 0;
-                                int voX = voxelX;
-                                int voY = voxelY;
-                                int voZ = voxelZ;
+                            if (world.traversalChunks[cx][cy][cz].occupancy[index >> 6] & (1ull << (index & 63))) {
+                                uint8_t type = world.voxelChunks[cx][cy][cz].voxels[index];
                                 
-                                Vector3 sampleDir = sunDirection;
-                                voxelX+=sampleDir.x;
-                                voxelY+=sampleDir.y;
-                                voxelZ+=sampleDir.z;
-                                uint8_t lightVal = world.voxelChunks[(int)voX/32][(int)voY/32][(int)voZ/32].voxelLightValue[(int(voX) % 32) * 32 * 32 + (int(voY) % 32) * 32 + (int(voZ) % 32)];
-                                if (lightVal!=0) {
-                                    if (lightVal==2) {
-                                        strength = 0.8f;
-                                    }
-                                }
-                                else {
-                                    while (t < 256.0f) {
-
-                                        if (voxelX < 0.0f || voxelY < 0.0f || voxelZ < 0.0f ||
-                                            voxelX >= WORLD_WIDTH ||
-                                            voxelY >= WORLD_HEIGHT ||
-                                            voxelZ >= WORLD_DEPTH)
-                                        {
-                                            world.voxelChunks[voX >> 5][voY >> 5][voZ >> 5]
-                                                .voxelLightValue[
-                                                    ((voX & 31) << 10) |
-                                                    ((voY & 31) << 5) |
-                                                    (voZ & 31)
-                                                ] = 1;
-                                            break;
+                                if (type != 0) {
+                                    float strength = 1;
+                                    float t = 0;
+                                    int voX = voxelX;
+                                    int voY = voxelY;
+                                    int voZ = voxelZ;
+                                    
+                                    Vector3 sampleDir = sunDirection;
+                                    voxelX+=sampleDir.x;
+                                    voxelY+=sampleDir.y;
+                                    voxelZ+=sampleDir.z;
+                                    uint8_t lightVal = world.voxelChunks[(int)voX/32][(int)voY/32][(int)voZ/32].voxelLightValue[(int(voX) % 32) * 32 * 32 + (int(voY) % 32) * 32 + (int(voZ) % 32)];
+                                    if (lightVal!=0) {
+                                        if (lightVal==2) {
+                                            strength = 0.8f;
                                         }
+                                    }
+                                    else {
+                                        while (t < 256.0f) {
 
-                                        int ix = (int)voxelX;
-                                        int iy = (int)voxelY;
-                                        int iz = (int)voxelZ;
-
-                                        int cx = ix >> 5;
-                                        int cy = iy >> 5;
-                                        int cz = iz >> 5;
-
-                                        int lx = ix & 31;
-                                        int ly = iy & 31;
-                                        int lz = iz & 31;
-
-                                        TraversalChunk& chunk =
-                                            world.traversalChunks[cx][cy][cz];
-
-                                        if (world.voxelChunks[cx][cy][cz].containsBlocks) {
-                                            int index = (lx << 10) | (ly << 5) | lz;
-
-                                            if (world.voxelChunks[cx][cy][cz].voxels[index] != 0) {
-                                                strength = 0.8f;
-
+                                            if (voxelX < 0.0f || voxelY < 0.0f || voxelZ < 0.0f ||
+                                                voxelX >= WORLD_WIDTH ||
+                                                voxelY >= WORLD_HEIGHT ||
+                                                voxelZ >= WORLD_DEPTH)
+                                            {
                                                 world.voxelChunks[voX >> 5][voY >> 5][voZ >> 5]
                                                     .voxelLightValue[
                                                         ((voX & 31) << 10) |
                                                         ((voY & 31) << 5) |
                                                         (voZ & 31)
-                                                    ] = 2;
-
+                                                    ] = 1;
                                                 break;
                                             }
-                                        }
 
-                                        float jump = std::max({
-                                            STEP(chunk.distanceToClosestVoxel, 32.0f),
-                                            STEP(chunk.distance16[lx >> 4][ly >> 4][lz >> 4], 16.0f),
-                                            STEP(chunk.distance8 [lx >> 3][ly >> 3][lz >> 3],  8.0f),
-                                            STEP(chunk.distance4 [lx >> 2][ly >> 2][lz >> 2],  4.0f)
-                                        });
+                                            int ix = (int)voxelX;
+                                            int iy = (int)voxelY;
+                                            int iz = (int)voxelZ;
 
-                                        if (jump > 0.0f) {
-                                            t += jump;
+                                            int cx = ix >> 5;
+                                            int cy = iy >> 5;
+                                            int cz = iz >> 5;
 
-                                            voxelX += sampleDir.x * jump;
-                                            voxelY += sampleDir.y * jump;
-                                            voxelZ += sampleDir.z * jump;
-                                        }
-                                        else {
-                                            int cellSize = 1;
+                                            int lx = ix & 31;
+                                            int ly = iy & 31;
+                                            int lz = iz & 31;
 
-                                            if (chunk.distanceToClosestVoxel != 0)
-                                                cellSize = 32;
-                                            else if (chunk.distance16[lx >> 4][ly >> 4][lz >> 4] != 0)
-                                                cellSize = 16;
-                                            else if (chunk.distance8[lx >> 3][ly >> 3][lz >> 3] != 0)
-                                                cellSize = 8;
-                                            else if (chunk.distance4[lx >> 2][ly >> 2][lz >> 2] != 0)
-                                                cellSize = 4;
+                                            TraversalChunk& chunk =
+                                                world.traversalChunks[cx][cy][cz];
 
-                                            int bx = ix & ~(cellSize - 1);
-                                            int by = iy & ~(cellSize - 1);
-                                            int bz = iz & ~(cellSize - 1);
+                                            if (world.voxelChunks[cx][cy][cz].containsBlocks) {
+                                                int index = (lx << 10) | (ly << 5) | lz;
 
-                                            float tx = ((sunDirSX > 0.0f ? bx + cellSize : bx) - voxelX)
-                                                    / sampleDir.x;
+                                                if (world.voxelChunks[cx][cy][cz].voxels[index] != 0) {
+                                                    strength = 0.8f;
 
-                                            float ty = ((sunDirSY > 0.0f ? by + cellSize : by) - voxelY)
-                                                    / sampleDir.y;
+                                                    world.voxelChunks[voX >> 5][voY >> 5][voZ >> 5]
+                                                        .voxelLightValue[
+                                                            ((voX & 31) << 10) |
+                                                            ((voY & 31) << 5) |
+                                                            (voZ & 31)
+                                                        ] = 2;
 
-                                            float tz = ((sunDirSZ > 0.0f ? bz + cellSize : bz) - voxelZ)
-                                                    / sampleDir.z;
+                                                    break;
+                                                }
+                                            }
 
-                                            float change = std::min({tx, ty, tz}) + 0.0001f;
+                                            float jump = std::max({
+                                                STEP(chunk.distanceToClosestVoxel, 32.0f),
+                                                STEP(chunk.distance16[lx >> 4][ly >> 4][lz >> 4], 16.0f),
+                                                STEP(chunk.distance8 [lx >> 3][ly >> 3][lz >> 3],  8.0f),
+                                                STEP(chunk.distance4 [lx >> 2][ly >> 2][lz >> 2],  4.0f)
+                                            });
 
-                                            t += change;
+                                            if (jump > 0.0f) {
+                                                t += jump;
 
-                                            voxelX += sampleDir.x * change;
-                                            voxelY += sampleDir.y * change;
-                                            voxelZ += sampleDir.z * change;
+                                                voxelX += sampleDir.x * jump;
+                                                voxelY += sampleDir.y * jump;
+                                                voxelZ += sampleDir.z * jump;
+                                            }
+                                            else {
+                                                int cellSize = 1;
+
+                                                if (chunk.distanceToClosestVoxel != 0)
+                                                    cellSize = 32;
+                                                else if (chunk.distance16[lx >> 4][ly >> 4][lz >> 4] != 0)
+                                                    cellSize = 16;
+                                                else if (chunk.distance8[lx >> 3][ly >> 3][lz >> 3] != 0)
+                                                    cellSize = 8;
+                                                else if (chunk.distance4[lx >> 2][ly >> 2][lz >> 2] != 0)
+                                                    cellSize = 4;
+
+                                                int bx = ix & ~(cellSize - 1);
+                                                int by = iy & ~(cellSize - 1);
+                                                int bz = iz & ~(cellSize - 1);
+
+                                                float tx = ((sunDirSX > 0.0f ? bx + cellSize : bx) - voxelX)
+                                                        / sampleDir.x;
+
+                                                float ty = ((sunDirSY > 0.0f ? by + cellSize : by) - voxelY)
+                                                        / sampleDir.y;
+
+                                                float tz = ((sunDirSZ > 0.0f ? bz + cellSize : bz) - voxelZ)
+                                                        / sampleDir.z;
+
+                                                float change = std::min({tx, ty, tz}) + 0.0001f;
+
+                                                t += change;
+
+                                                voxelX += sampleDir.x * change;
+                                                voxelY += sampleDir.y * change;
+                                                voxelZ += sampleDir.z * change;
+                                            }
                                         }
                                     }
+                                    ((unsigned char *)imageBuffer.data)[idx] = colors[type].r*strength;
+                                    ((unsigned char *)imageBuffer.data)[idx + 1] = colors[type].g*strength;
+                                    ((unsigned char *)imageBuffer.data)[idx + 2] = colors[type].b*strength;
+                                    break;
                                 }
-                                ((unsigned char *)imageBuffer.data)[idx] = colors[type].r*strength;
-                                ((unsigned char *)imageBuffer.data)[idx + 1] = colors[type].g*strength;
-                                ((unsigned char *)imageBuffer.data)[idx + 2] = colors[type].b*strength;
-                                break;
                             }
+                            
                         }
-                        
+
+                        int ix = (int)voxelX, iy = (int)voxelY, iz = (int)voxelZ;
+                        TraversalChunk &chunk = world.traversalChunks[ix >> 5][iy >> 5][iz >> 5];
+                        int lx = ix & 31, ly = iy & 31, lz = iz & 31;
+
+                        float jump = std::max({
+                            STEP(chunk.distanceToClosestVoxel, 32.0f),
+                            STEP(chunk.distance16[lx >> 4][ly >> 4][lz >> 4], 16.0f),
+                            STEP(chunk.distance8[lx >> 3][ly >> 3][lz >> 3], 8.0f),
+                            STEP(chunk.distance4[lx >> 2][ly >> 2][lz >> 2], 4.0f)
+                        });
+
+                        if (jump > 0.0f) {
+                            t+=jump;
+                        }
+                        else {
+                            int cellSize = 1;
+                            
+                            if (chunk.distanceToClosestVoxel != 0) {
+                                cellSize = 32;
+                            }
+                            else if (chunk.distance16[lx >> 4][ly >> 4][lz >> 4] != 0) {
+                                cellSize = 16;
+                            }
+                            else if (chunk.distance8[lx >> 3][ly >> 3][lz >> 3] != 0) {
+                                cellSize = 8;
+                            }
+                            else if (chunk.distance4[lx >> 2][ly >> 2][lz >> 2] != 0) {
+                                cellSize = 4;
+                            }
+
+                            int bx = ix & ~(cellSize - 1);
+                            int by = iy & ~(cellSize - 1);
+                            int bz = iz & ~(cellSize - 1);
+
+                            float tx = ((sx > 0.0f ? bx + cellSize : bx) - voxelX) / direction.x;
+                            float ty = ((sy > 0.0f ? by + cellSize : by) - voxelY) / direction.y;
+                            float tz = ((sz > 0.0f ? bz + cellSize : bz) - voxelZ) / direction.z;
+
+                            t += std::min({tx, ty, tz}) + 0.0001f;
+
+                        }                    
                     }
-
-                    int ix = (int)voxelX, iy = (int)voxelY, iz = (int)voxelZ;
-                    TraversalChunk &chunk = world.traversalChunks[ix >> 5][iy >> 5][iz >> 5];
-                    int lx = ix & 31, ly = iy & 31, lz = iz & 31;
-
-                    float jump = std::max({
-                        STEP(chunk.distanceToClosestVoxel, 32.0f),
-                        STEP(chunk.distance16[lx >> 4][ly >> 4][lz >> 4], 16.0f),
-                        STEP(chunk.distance8[lx >> 3][ly >> 3][lz >> 3], 8.0f),
-                        STEP(chunk.distance4[lx >> 2][ly >> 2][lz >> 2], 4.0f)
-                    });
-
-                    if (jump > 0.0f) {
-                        t+=jump;
-                    }
-                    else {
-                        int cellSize = 1;
-                        
-                        if (chunk.distanceToClosestVoxel != 0) {
-                            cellSize = 32;
-                        }
-                        else if (chunk.distance16[lx >> 4][ly >> 4][lz >> 4] != 0) {
-                            cellSize = 16;
-                        }
-                        else if (chunk.distance8[lx >> 3][ly >> 3][lz >> 3] != 0) {
-                            cellSize = 8;
-                        }
-                        else if (chunk.distance4[lx >> 2][ly >> 2][lz >> 2] != 0) {
-                            cellSize = 4;
-                        }
-
-                        int bx = ix & ~(cellSize - 1);
-                        int by = iy & ~(cellSize - 1);
-                        int bz = iz & ~(cellSize - 1);
-
-                        float tx = ((sx > 0.0f ? bx + cellSize : bx) - voxelX) / direction.x;
-                        float ty = ((sy > 0.0f ? by + cellSize : by) - voxelY) / direction.y;
-                        float tz = ((sz > 0.0f ? bz + cellSize : bz) - voxelZ) / direction.z;
-
-                        t += std::min({tx, ty, tz}) + 0.0001f;
-
-                    }                    
+                    oldDistance[pixelIndex] = t*0.9;
                 }
-                oldDistance[pixelIndex] = t*0.9;
             }
-        }
-        auto renderEnd = Clock::now();
-        
-        UpdateTexture(displayBuffer, imageBuffer.data);
-                
-        DrawTexturePro(displayBuffer, 
-            (Rectangle){0, 0, width, height},
-            (Rectangle){0, 0, width*SCALE, height*SCALE},
-            (Vector2){0, 0}, 0, WHITE);
-        UpdateCamera(&camera, CAMERA_FREE);
-        
-        auto loopEnd = Clock::now();
-        
-        double dirTime = ms(dirStart, dirEnd);
-        double renderTime = ms(renderStart, renderEnd);
-        double loopTime = ms(loopStart, loopEnd);
-        double totalTime = ms(totalStart, loopEnd);
-        
-        std::cout << "Frame " << frame << " | Direction: " << dirTime  << "ms | Render: " << renderTime << "ms | Total Loop: " << loopTime << "ms | Total Runtime: " << totalTime << "ms" << std::endl;
-        
-        DrawFPS(0, 0);
+            auto renderEnd = Clock::now();
+            
+            UpdateTexture(displayBuffer, imageBuffer.data);
+                    
+            DrawTexturePro(displayBuffer, 
+                (Rectangle){0, 0, width, height},
+                (Rectangle){0, 0, width*SCALE, height*SCALE},
+                (Vector2){0, 0}, 0, WHITE);
+            UpdateCamera(&camera, CAMERA_FREE);
+            
+            auto loopEnd = Clock::now();
+            
+            double dirTime = ms(dirStart, dirEnd);
+            double renderTime = ms(renderStart, renderEnd);
+            double loopTime = ms(loopStart, loopEnd);
+            double totalTime = ms(totalStart, loopEnd);
+            
+            std::cout << "Frame " << frame << " | Direction: " << dirTime  << "ms | Render: " << renderTime << "ms | Total Loop: " << loopTime << "ms | Total Runtime: " << totalTime << "ms" << std::endl;
+            
+            DrawFPS(0, 0);
 
-        EndDrawing();
+            EndDrawing();
     }
 }
 
