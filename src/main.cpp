@@ -226,8 +226,9 @@ class App {
                             int index = lx * 32 * 32 + ly * 32 + lz;
                             
                             if (world.traversalChunks[cx][cy][cz].occupancy[index >> 6] & (1ull << (index & 63))) {
-                                uint8_t type = world.voxelChunks[cx][cy][cz].voxels[index];
-                                
+                                uint8_t type;
+                                if (world.voxelChunks[cx][cy][cz].palletized==0) type = world.voxelChunks[cx][cy][cz].voxels[index];
+                                else type = world.voxelChunks[cx][cy][cz].palletized;
                                 if (type != 0) {
                                     float strength = 1;
                                     float t = 0;

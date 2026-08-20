@@ -21,21 +21,63 @@ struct VoxelChunk {
     uint8_t *voxels;
     uint8_t *voxelLightValue;
     bool containsBlocks;
-    bool palletized;
-    bool CheckOriginals() {
-        uint8_t types[256];
-        for (int i = 0; i < 256; i++) types[i] = 0;
-        for (int x = 0; x < 32; x++) {
-            for (int y= 0 ; y < 32; y++) {
-                for (int z = 0; z < 32; z++) {
-                    if (voxels[IDX(x,y,z,32)]!=0) types[voxels[IDX(x,y,z,32)]]++;
+    int palletized = 0;
+    uint8_t *remap;
+    int filledOut = 0;
+    int lod;
+    bool CheckOriginals(int lod) {
+        palletized = 0;
+        this->lod = lod;
+        if (containsBlocks) {
+            uint8_t tt = voxels[IDX(0,0,0,32)];
+            int commons[256];
+            for (int i = 0; i < 256; i++) commons[i] = 0;
+            if (lod==32) {
+                //count the most common block
+                    
+                for (int x = 0; x < 32; x++) {
+                    for (int y= 0 ; y < 32; y++) {
+                        for (int z = 0; z < 32; z++) {
+                            commons[voxels[IDX(x,y,z,32)]]++;
+                        }
+                    }
+                }
+                int mostCommon = 1;
+                for (int i = 1; i < 256; i++) {
+                    if (commons[i]>commons[mostCommon]) {
+                        mostCommon = i;
+                    }
+                }
+                free(voxels);
+                filledOut = mostCommon;
+            }
+            if (lod==16) {
+                //count the most common block
+            }
+            if (lod==8) {
+                //count the most common block 
+            }
+            if (lod==4) {
+                //count the most common block 
+            }
+            if (lod==2) {
+                //just pick at random
+            }
+            
+            for (int x = 0; x < 32; x++) {
+                for (int y= 0 ; y < 32; y++) {
+                    for (int z = 0; z < 32; z++) {
+                        if (tt!=voxels[IDX(x,y,z,32)]&& voxels[IDX(x,y,z,32)]!=0) {
+                            return false;
+                        }
+                    }
                 }
             }
+            free(voxels);
+            palletized = tt;
+            return true;
         }
-        uint8_t originals = 0;
-        for (int i = 0; i < 256; i++) originals+=types[i]!=0;
-        return originals<16;
-           
+        return false;
     }
     void Clear() {
         containsBlocks = false;
@@ -373,7 +415,7 @@ struct World {
                     
                     int id = IDX(x%32,y%32,z%32,32);
                     if (height==y) {
-                        voxelChunks[cx][cy][cz].voxels[id] = GET_RANDOM_VALUE(1,2);
+                        voxelChunks[cx][cy][cz].voxels[id] = 1;
                         voxelChunks[cx][cy][cz].containsBlocks = true;
                     }
                     else {
@@ -383,23 +425,11 @@ struct World {
                 }
             }
         }
-        int id = 0;
-        for (int x = 0; x < WORLD_WIDTH/32; x++) {
-            for (int y= 0 ; y < WORLD_HEIGHT/32; y++) {
-                for (int z = 0; z < WORLD_DEPTH/32; z++) {
-                    if (voxelChunks[x][y][z].CheckOriginals()) {
-                        id ++;
-                    }
-
-                }
-            }
-        }
-        std::cout<<id<<" Generated world shape\n";
         BuildDistanceToClosestVoxel();
         BuildDistanceLayer(16);
         BuildDistanceLayer(8);
         BuildDistanceLayer(4);
-
+        int chunksWidthData = 0;
 #pragma omp parallel for collapse(3)
         for (int x = 0; x < WORLD_WIDTH/32; x++) {
             for (int y= 0 ; y < WORLD_HEIGHT/32; y++) {
@@ -414,11 +444,23 @@ struct World {
                         for (int i = 0; i < 32*32*32; i++) {
                             voxelChunks[x][y][z].voxelLightValue[i] = 0;
                         }
+                        chunksWidthData+=1;
                     }
                 }
             }
         }
-        
+        int id = 0;
+        for (int x = 0; x < WORLD_WIDTH/32; x++) {
+            for (int y= 0 ; y < WORLD_HEIGHT/32; y++) {
+                for (int z = 0; z < WORLD_DEPTH/32; z++) {
+                    if (voxelChunks[x][y][z].CheckOriginals(traversalChunks[x][y][z].buildID)) {
+                        id+=1;
+                    }
+
+                }
+            }
+        }
+        std::cout<<"Chunks with one voxel: " << id<<" chunks with data: "<<chunksWidthData<<" \n";
         UnloadImage(noise);
     }
 };
