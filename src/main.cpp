@@ -27,7 +27,24 @@ using Clock = std::chrono::steady_clock;
     const float dz = (d).z - direction.z;         \
     return sqrtf(dx * dx + dy * dy + dz * dz);    \
 }())
-const float SCALE = 1;
+#define GET_RANDOM_VALUE(min_, max_)                             \
+({                                                                \
+    int _min = (min_);                                            \
+    int _max = (max_);                                            \
+    unsigned long _range =                                        \
+        (unsigned long)((long long)_max - (long long)_min + 1);   \
+    const unsigned long _c = (unsigned long)RAND_MAX + 1UL;       \
+    const unsigned long _t = _c - (_c % _range);                  \
+    unsigned long _r;                                             \
+                                                                  \
+    do                                                            \
+    {                                                             \
+        _r = (unsigned long)rand();                               \
+    } while (_r >= _t);                                           \
+                                                                  \
+    _min + (int)(_r % _range);                                   \
+})
+const float SCALE = 1.2;
 const float FOVY = 120.0f;
 auto ms = [](auto start, auto end) {
     return std::chrono::duration<double, std::milli>(end - start).count();
@@ -92,8 +109,8 @@ inline static Vector2 GetWorldToScreenOptimized(Vector3 position, Camera camera,
 
     return screenPosition;
 }
-const int WORLD_WIDTH = 4096;
-const int WORLD_DEPTH = 4096;
+const int WORLD_WIDTH = 2048;
+const int WORLD_DEPTH = 2048;
 const int WORLD_HEIGHT = 512;
 const int RENDERDISTANCE = 2048;
 struct VoxelChunk {
@@ -371,11 +388,11 @@ struct World {
             for (int z = 0; z < WORLD_DEPTH; z++) {
                 int height = GetImageColor(noise,x,z).r;
                 
-                if (GetRandomValue(0,1000)==1) {
+                if (GET_RANDOM_VALUE(0,1000)==1) {
                     
                     int dx = 0; 
                     int dy = 0; 
-                    int treeHeight = GetRandomValue(20,50);
+                    int treeHeight = GET_RANDOM_VALUE(20,50);
                     for (int i = 0; i < treeHeight && height + i < WORLD_HEIGHT; i++) {
                             
                         int cx = (x+dx)/32;
@@ -383,14 +400,14 @@ struct World {
                         int cz = (z+dy)/32;
                         voxelChunks[cx][cy][cz].voxels[(x+dx)%32*32*32+((height+i)%32)*32+(z+dy)%32] = 3;
                         voxelChunks[cx][cy][cz].containsBlocks = true;
-                        if (GetRandomValue(0,10)==1) {
-                            int dxOff = GetRandomValue(-1,1);
+                        if (GET_RANDOM_VALUE(0,10)==1) {
+                            int dxOff = GET_RANDOM_VALUE(-1,1);
                             dx+=dxOff;
                             if (dx+x>WORLD_WIDTH-1 || dx+x<0) dx-=dxOff;
                                 
                         }
-                        if (GetRandomValue(0,10)==1) {
-                            int dyOff = GetRandomValue(-1,1);
+                        if (GET_RANDOM_VALUE(0,10)==1) {
+                            int dyOff = GET_RANDOM_VALUE(-1,1);
                             dy+=dyOff;
                             if (dy+z>WORLD_DEPTH-1 || dy+z<0) dy-=dyOff;
                         }
@@ -438,7 +455,7 @@ struct World {
                     
                     int id = (x%32)*32*32+(y%32)*32+z%32;
                     if (height==y) {
-                        voxelChunks[cx][cy][cz].voxels[id] = GetRandomValue(1,2);
+                        voxelChunks[cx][cy][cz].voxels[id] = GET_RANDOM_VALUE(1,2);
                         voxelChunks[cx][cy][cz].containsBlocks = true;
                     }
                     else {
@@ -448,6 +465,7 @@ struct World {
                 }
             }
         }
+        std::cout<<"Generated world shape\n";
         BuildDistanceToClosestVoxel();
         BuildDistanceLayer(16);
         BuildDistanceLayer(8);
