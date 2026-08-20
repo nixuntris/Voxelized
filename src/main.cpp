@@ -12,6 +12,13 @@
 #include <limits>
 #include <algorithm>
 #include <immintrin.h>
+enum VoxelTypes {
+    AIR=0,
+    GRASS=1,
+    GRASS_VARIANT=2,
+    TREE_BARK=3,
+    LEAF=4
+};
 using Clock = std::chrono::steady_clock;
 #define STEP(d, size) (((d) > 1 && (d) != 255) ? (((d) - 1) * (size)) : 0.0f)
 #define DIRECTION_DELTA(d) ([&]() {               \
@@ -25,8 +32,8 @@ const float FOVY = 120.0f;
 auto ms = [](auto start, auto end) {
     return std::chrono::duration<double, std::milli>(end - start).count();
 };
-const int width = 700/SCALE;
-const int height = 700/SCALE;
+const int width = 1000/SCALE;
+const int height = 1000/SCALE;
 const float PIXEL_WORLD_SLOPE = 2.0f * tanf(FOVY * 0.5f * DEG2RAD) / width;
 const float LOD2_START  = 2.0f  / PIXEL_WORLD_SLOPE;
 const float LOD4_START  = 4.0f  / PIXEL_WORLD_SLOPE;
@@ -85,10 +92,10 @@ inline static Vector2 GetWorldToScreenOptimized(Vector3 position, Camera camera,
 
     return screenPosition;
 }
-const int WORLD_WIDTH = 2048;
-const int WORLD_DEPTH = 2048;
+const int WORLD_WIDTH = 4096;
+const int WORLD_DEPTH = 4096;
 const int WORLD_HEIGHT = 512;
-const int RENDERDISTANCE = 1024;
+const int RENDERDISTANCE = 2048;
 struct VoxelChunk {
     uint8_t *voxels;
     uint8_t *voxelLightValue;
@@ -653,7 +660,12 @@ class App {
                             voxelX >= WORLD_WIDTH || voxelY >= WORLD_HEIGHT || voxelZ >= WORLD_DEPTH) {
                             break;
                         }
-                                    
+                        int lod = 1;
+                        if (t > LOD16_START) lod = 16;
+                        else if (t > LOD8_START) lod = 8;
+                        else if (t > LOD4_START) lod = 4;
+                        else if (t > LOD2_START) lod = 2;
+                        else lod = 1;
                         int cx = voxelX / 32;
                         int cy = voxelY / 32;
                         int cz = voxelZ / 32;
@@ -733,10 +745,10 @@ class App {
                                             }
 
                                             float jump = std::max({
-                                                STEP(chunk.distanceToClosestVoxel, 32.0f),
-                                                STEP(chunk.distance16[lx >> 4][ly >> 4][lz >> 4], 16.0f),
-                                                STEP(chunk.distance8 [lx >> 3][ly >> 3][lz >> 3],  8.0f),
-                                                STEP(chunk.distance4 [lx >> 2][ly >> 2][lz >> 2],  4.0f)
+                                                STEP(chunk.distanceToClosestVoxel,  std::max(32, lod)),
+                                                STEP(chunk.distance16[lx >> 4][ly >> 4][lz >> 4],  std::max(16, lod)),
+                                                STEP(chunk.distance8 [lx >> 3][ly >> 3][lz >> 3],   std::max(8, lod)),
+                                                STEP(chunk.distance4 [lx >> 2][ly >> 2][lz >> 2],   std::max(4, lod))
                                             });
 
                                             if (jump > 0.0f) {
@@ -751,11 +763,11 @@ class App {
 
                                                 if (chunk.distanceToClosestVoxel != 0)
                                                     cellSize = 32;
-                                                else if (chunk.distance16[lx >> 4][ly >> 4][lz >> 4] != 0)
+                                                else if (chunk.distance16[lx >> 4][ly >> 4][lz >> 4] != 0 && lod<=16)
                                                     cellSize = 16;
-                                                else if (chunk.distance8[lx >> 3][ly >> 3][lz >> 3] != 0)
+                                                else if (chunk.distance8[lx >> 3][ly >> 3][lz >> 3] != 0 && lod<=8)
                                                     cellSize = 8;
-                                                else if (chunk.distance4[lx >> 2][ly >> 2][lz >> 2] != 0)
+                                                else if (chunk.distance4[lx >> 2][ly >> 2][lz >> 2] != 0 && lod<=4)
                                                     cellSize = 4;
 
                                                 int bx = ix & ~(cellSize - 1);
@@ -795,10 +807,10 @@ class App {
                         int lx = ix & 31, ly = iy & 31, lz = iz & 31;
 
                         float jump = std::max({
-                            STEP(chunk.distanceToClosestVoxel, 32.0f),
-                            STEP(chunk.distance16[lx >> 4][ly >> 4][lz >> 4], 16.0f),
-                            STEP(chunk.distance8[lx >> 3][ly >> 3][lz >> 3], 8.0f),
-                            STEP(chunk.distance4[lx >> 2][ly >> 2][lz >> 2], 4.0f)
+                            STEP(chunk.distanceToClosestVoxel,        std::max(32, lod)),
+                            STEP(chunk.distance16[lx >> 4][ly >> 4][lz >> 4], std::max(16, lod)),
+                            STEP(chunk.distance8 [lx >> 3][ly >> 3][lz >> 3], std::max(8,  lod)),
+                            STEP(chunk.distance4 [lx >> 2][ly >> 2][lz >> 2], std::max(4,  lod))
                         });
 
                         if (jump > 0.0f) {
@@ -810,13 +822,13 @@ class App {
                             if (chunk.distanceToClosestVoxel != 0) {
                                 cellSize = 32;
                             }
-                            else if (chunk.distance16[lx >> 4][ly >> 4][lz >> 4] != 0) {
+                            else if (chunk.distance16[lx >> 4][ly >> 4][lz >> 4] != 0 && lod<=16) {
                                 cellSize = 16;
                             }
-                            else if (chunk.distance8[lx >> 3][ly >> 3][lz >> 3] != 0) {
+                            else if (chunk.distance8[lx >> 3][ly >> 3][lz >> 3] != 0 && lod<=8) {
                                 cellSize = 8;
                             }
-                            else if (chunk.distance4[lx >> 2][ly >> 2][lz >> 2] != 0) {
+                            else if (chunk.distance4[lx >> 2][ly >> 2][lz >> 2] != 0 && lod<=4) {
                                 cellSize = 4;
                             }
 
