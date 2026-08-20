@@ -25,9 +25,11 @@ struct VoxelChunk {
     uint8_t *remap;
     int filledOut = 0;
     int lod;
+    int size;
     bool CheckOriginals(int lod) {
         palletized = 0;
         this->lod = lod;
+        size = 32/lod;
         if (containsBlocks) {
             uint8_t tt = voxels[IDX(0,0,0,32)];
             int commons[256];
@@ -51,17 +53,29 @@ struct VoxelChunk {
                 free(voxels);
                 filledOut = mostCommon;
             }
-            if (lod==16) {
-                //count the most common block
-            }
-            if (lod==8) {
-                //count the most common block 
-            }
-            if (lod==4) {
-                //count the most common block 
-            }
-            if (lod==2) {
+            else if (lod!=1) {
                 //just pick at random
+                uint8_t *lodVer = (uint8_t*)MemAlloc(size*size*size);
+                for (int x = 0; x < size; x++) {
+                    for (int y= 0 ; y < size; y++) {
+                        for (int z = 0; z < size; z++) {
+                            bool continueForThisChunk = true;
+                            for (int dx = 0; dx < lod && continueForThisChunk; dx++) {
+                                for (int dy = 0; dy < lod && continueForThisChunk; dy++) {
+                                    for (int dz = 0; dz < lod && continueForThisChunk; dz++) {
+                                        if (voxels[IDX(x*lod+dx,y*lod+dy,z*lod+dz,32)]!=0) {
+                                            lodVer[IDX(x,y,z,size)] = voxels[IDX(x*lod+dx,y*lod+dy,z*lod+dz,32)];
+                                            continueForThisChunk = false;
+                                            break;
+                                        }       
+                                    }
+                                }   
+                            }
+                        }
+                    }
+                }
+                free(voxels);
+                voxels = lodVer;
             }
             
             for (int x = 0; x < 32; x++) {

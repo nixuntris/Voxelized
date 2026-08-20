@@ -227,7 +227,11 @@ class App {
                             
                             if (world.traversalChunks[cx][cy][cz].occupancy[index >> 6] & (1ull << (index & 63))) {
                                 uint8_t type;
-                                if (world.voxelChunks[cx][cy][cz].palletized==0) type = world.voxelChunks[cx][cy][cz].voxels[index];
+                                if (world.voxelChunks[cx][cy][cz].palletized==0) {
+                                    int lod = world.voxelChunks[cx][cy][cz].lod; 
+                                    type = world.voxelChunks[cx][cy][cz].voxels[IDX(lx/lod,ly/lod,lz/lod,world.voxelChunks[cx][cy][cz].size)];
+                                    
+                                }
                                 else type = world.voxelChunks[cx][cy][cz].palletized;
                                 if (type != 0) {
                                     float strength = 1;
@@ -279,9 +283,10 @@ class App {
                                                 world.traversalChunks[cx][cy][cz];
 
                                             if (world.voxelChunks[cx][cy][cz].containsBlocks) {
-                                                int index = (lx << 10) | (ly << 5) | lz;
+                                                int index = lx * 32 * 32 + ly * 32 + lz;
 
-                                                if (world.voxelChunks[cx][cy][cz].voxels[index] != 0) {
+                                                if (world.traversalChunks[cx][cy][cz].occupancy[index >> 6] & (1ull << (index & 63))) {
+                                                
                                                     strength = 0.8f;
 
                                                     world.voxelChunks[voX >> 5][voY >> 5][voZ >> 5]
