@@ -15,7 +15,8 @@ enum VoxelTypes {
     TREE_BARK=3,
     LEAF=4,
     STONE = 5,
-    SAND = 6
+    SAND = 6,
+    WATER = 7
 };
 struct VoxelData {
     std::string name;
@@ -47,7 +48,7 @@ const VoxelData voxelMetaData[10] = {
         "sand", 0.7f, false, false
     },
     {
-        "", 0.0f, false, false
+        "water", 0.0f, false, false
     },
     {
         "", 0.0f, false, false
@@ -57,10 +58,10 @@ const VoxelData voxelMetaData[10] = {
     }
 };
 const float FOVY = 120.0f;
-const float SCALE = 1;
-const int width = 1000/SCALE;
-const int height = 1000/SCALE;
-const float PIXEL_WORLD_SLOPE = 2.0f * tanf(FOVY * 0.5f * DEG2RAD) / width;
+const float SCALE = 1.5;
+const int width = 800/SCALE;
+const int height = 800/SCALE;
+const float PIXEL_WORLD_SLOPE = 2.0f * tanf(FOVY * 0.5f * DEG2RAD) / 1000;
 const float LOD2_START  = 2.0f  / PIXEL_WORLD_SLOPE;
 const float LOD4_START  = 4.0f  / PIXEL_WORLD_SLOPE;
 const float LOD8_START  = 8.0f  / PIXEL_WORLD_SLOPE;

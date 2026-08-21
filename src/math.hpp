@@ -8,7 +8,7 @@
     const float dx = (d).x - direction.x;         \
     const float dy = (d).y - direction.y;         \
     const float dz = (d).z - direction.z;         \
-    return sqrtf(dx * dx + dy * dy + dz * dz);    \
+    return float(dx * dx + dy * dy + dz * dz);    \
 }())
 #define GET_RANDOM_VALUE(min_, max_)                             \
 ({                                                                \

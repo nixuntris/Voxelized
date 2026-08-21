@@ -1,4 +1,7 @@
-This is an implementantion of a voxel engine
+This is an implementantion of a cpu raytracer.
+It's meant to run in real time, and is developed on a ryzen 5950x, it currently doesn't have completely implemented avx2 instructions.
+![](preview.jpg)
+
 The project has raylib linked to where it's installed by the raylib installer, if you have it installed somewhere else you need to change the COMPILER_PATH variable in the Makefile to where it's saved.
 I have not tested it on linux, this was developed on windows, so there maybe unexpected issues there.
 This is also setup to be plug and play with visual studio code. If you wish to use another IDE/code editor you may need to do some edits.

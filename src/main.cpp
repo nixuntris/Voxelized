@@ -67,10 +67,10 @@ class App {
     void Run() {
         int frame = 0;
 
-        const Color colors[10] = {SKYBLUE,GREEN,{uint8_t(GREEN.r*0.9),uint8_t(GREEN.g*0.9),uint8_t(GREEN.b*0.9),255},BROWN,DARKGREEN,GRAY,YELLOW};
+        const Color colors[10] = {SKYBLUE,GREEN,{uint8_t(GREEN.r*0.9),uint8_t(GREEN.g*0.9),uint8_t(GREEN.b*0.9),255},BROWN,DARKGREEN,GRAY,YELLOW,BLUE};
         
         auto totalStart = Clock::now();
-        bool lowResPass = false;
+        
         while (!WindowShouldClose()) {
             auto loopStart = Clock::now();
             BeginDrawing();
@@ -113,6 +113,7 @@ class App {
             #pragma omp parallel for collapse(2)
             for (int by = 0; by < height / LOW_SCALE; ++by) {
                 for (int bx = 0; bx < width / LOW_SCALE; ++bx) {
+                    
                     const int baseX = bx * LOW_SCALE;
                     const int baseY = by * LOW_SCALE;
 
@@ -136,10 +137,10 @@ class App {
                         direction.z *= ilength;
                     }
 
-                    const float coneSlope = std::max({
+                    const float coneSlope = sqrtf(std::max({
                         DIRECTION_DELTA(d00), DIRECTION_DELTA(d30),
                         DIRECTION_DELTA(d03), DIRECTION_DELTA(d33)
-                    });
+                    }));
 
                     float t = 0.0f;
 
@@ -160,7 +161,7 @@ class App {
                         const int lx = ix & 31;
                         const int ly = iy & 31;
                         const int lz = iz & 31;
-                        
+
                         const float jump = std::max({
                             STEP(chunk.distanceToClosestVoxel, 32.0f),
                             STEP(chunk.distance16[IDX(lx >> 4,ly >> 4,lz >> 4,2)], 16.0f),
@@ -239,7 +240,7 @@ class App {
                                     
                                 }
                                 else type = world.voxelChunks[cx][cy][cz].palletized;
-                                if (type != 0) {
+                                if (type != 0 && type!=7) {
                                     float strength = 1.0f;
                                     float shadowT = 0.0f;
 
@@ -347,6 +348,7 @@ class App {
                                                 shadowX += sunDirection.x * step;
                                                 shadowY += sunDirection.y * step;
                                                 shadowZ += sunDirection.z * step;
+
                                             }
                                         }
                                     }
@@ -427,7 +429,7 @@ class App {
             
             double lowrenderTime = ms(lowrenderStart, lowrenderEnd);
             
-            std::cout << "Frame " << frame <<"Low render: "<<lowrenderTime<< " | Direction: " << dirTime  << "ms | Render: " << renderTime << "ms | Total Loop: " << loopTime << "ms | Total Runtime: " << totalTime << "ms" << std::endl;
+            //std::cout << "Frame " << frame <<"Low render: "<<lowrenderTime<< " | Direction: " << dirTime  << "ms | Render: " << renderTime << "ms | Total Loop: " << loopTime << "ms | Total Runtime: " << totalTime << "ms" << std::endl;
             
             DrawFPS(0, 0);
 
