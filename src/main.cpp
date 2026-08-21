@@ -32,6 +32,9 @@ float sunDirSZ = copysignf(1.0f, sunDirection.z);
 float invDx = 1.0f / sunDirection.x;
 float invDy = 1.0f / sunDirection.y;
 float invDz = 1.0f / sunDirection.z;
+int sunPosX = sunDirection.x > 0.0f;
+int sunPosY = sunDirection.y > 0.0f;
+int sunPosZ = sunDirection.z > 0.0f;
 class App {
     public:
     Camera camera;
@@ -109,80 +112,76 @@ class App {
             }
             auto dirEnd = Clock::now();
             std::fill(oldDistance, oldDistance + width * height, 0.0f);
-            if (IsKeyPressed(KEY_F)) lowResPass = !lowResPass;
-            std::cout<<lowResPass<<"\n";
-            if (lowResPass) {
-                
-                constexpr int LOW_SCALE = 4;
-                constexpr float CONE_GUARD = 1.5f;
+            constexpr int LOW_SCALE = 4;
+            constexpr float CONE_GUARD = 1.5f;
 
-                #pragma omp parallel for collapse(2)
-                for (int by = 0; by < height / LOW_SCALE; ++by) {
-                    for (int bx = 0; bx < width / LOW_SCALE; ++bx) {
-                        const int baseX = bx * LOW_SCALE;
-                        const int baseY = by * LOW_SCALE;
+            #pragma omp parallel for collapse(2)
+            for (int by = 0; by < height / LOW_SCALE; ++by) {
+                for (int bx = 0; bx < width / LOW_SCALE; ++bx) {
+                    const int baseX = bx * LOW_SCALE;
+                    const int baseY = by * LOW_SCALE;
 
-                        const Vector3 d00 = directionStorage[(baseX + 0) + (baseY + 0) * width];
-                        const Vector3 d30 = directionStorage[(baseX + 3) + (baseY + 0) * width];
-                        const Vector3 d03 = directionStorage[(baseX + 0) + (baseY + 3) * width];
-                        const Vector3 d33 = directionStorage[(baseX + 3) + (baseY + 3) * width];
+                    const Vector3 d00 = directionStorage[(baseX + 0) + (baseY + 0) * width];
+                    const Vector3 d30 = directionStorage[(baseX + 3) + (baseY + 0) * width];
+                    const Vector3 d03 = directionStorage[(baseX + 0) + (baseY + 3) * width];
+                    const Vector3 d33 = directionStorage[(baseX + 3) + (baseY + 3) * width];
 
-                        Vector3 direction = Vector3Normalize({
-                            d00.x + d30.x + d03.x + d33.x,
-                            d00.y + d30.y + d03.y + d33.y,
-                            d00.z + d30.z + d03.z + d33.z
-                        });
+                    Vector3 direction = Vector3Normalize({
+                        d00.x + d30.x + d03.x + d33.x,
+                        d00.y + d30.y + d03.y + d33.y,
+                        d00.z + d30.z + d03.z + d33.z
+                    });
 
-                        const float coneSlope = std::max({
-                            DIRECTION_DELTA(d00), DIRECTION_DELTA(d30),
-                            DIRECTION_DELTA(d03), DIRECTION_DELTA(d33)
-                        });
+                    const float coneSlope = std::max({
+                        DIRECTION_DELTA(d00), DIRECTION_DELTA(d30),
+                        DIRECTION_DELTA(d03), DIRECTION_DELTA(d33)
+                    });
 
-                        float t = 0.0f;
+                    float t = 0.0f;
 
-                        while (t < RENDERDISTANCE) {
-                            const float voxelX = camera.position.x + direction.x * t;
-                            const float voxelY = camera.position.y + direction.y * t;
-                            const float voxelZ = camera.position.z + direction.z * t;
+                    while (t < RENDERDISTANCE) {
+                        const float voxelX = camera.position.x + direction.x * t;
+                        const float voxelY = camera.position.y + direction.y * t;
+                        const float voxelZ = camera.position.z + direction.z * t;
 
-                            if (voxelX < 0.0f || voxelY < 0.0f || voxelZ < 0.0f ||
-                                voxelX >= WORLD_WIDTH || voxelY >= WORLD_HEIGHT || voxelZ >= WORLD_DEPTH) {
-                                break;
-                            }
-
-                            const int ix = (int)voxelX;
-                            const int iy = (int)voxelY;
-                            const int iz = (int)voxelZ;
-                            TraversalChunk &chunk = world.traversalChunks[ix >> 5][iy >> 5][iz >> 5];
-                            const int lx = ix & 31;
-                            const int ly = iy & 31;
-                            const int lz = iz & 31;
-
-                            const float jump = std::max({
-                                STEP(chunk.distanceToClosestVoxel, 32.0f),
-                                STEP(chunk.distance16[IDX(lx >> 4,ly >> 4,lz >> 4,2)], 16.0f),
-                                STEP(chunk.distance8[IDX(lx >> 3,ly >> 3,lz >> 3,4)], 8.0f),
-                                STEP(chunk.distance4[IDX(lx >> 2,ly >> 2,lz >> 2,8)], 4.0f)
-                            });
-                            const float coneRadius = t * coneSlope + CONE_GUARD;
-                            const float remainingSafe = jump - coneRadius;
-                            if (remainingSafe <= 0.0f) break;
-
-                            const float advance = remainingSafe / (1.0f + coneSlope);
-                            if (advance <= 0.0001f) break;
-
-                            t += advance;
+                        if (voxelX < 0.0f || voxelY < 0.0f || voxelZ < 0.0f ||
+                            voxelX >= WORLD_WIDTH || voxelY >= WORLD_HEIGHT || voxelZ >= WORLD_DEPTH) {
+                            break;
                         }
 
-                        const float seedT = std::max(0.0f, t - 0.25f);
-                        for (int dy = 0; dy < LOW_SCALE; ++dy) {
-                            for (int dx = 0; dx < LOW_SCALE; ++dx) {
-                                oldDistance[(baseX + dx) + (baseY + dy) * width] = seedT;
-                            }
+                        const int ix = (int)voxelX;
+                        const int iy = (int)voxelY;
+                        const int iz = (int)voxelZ;
+                        TraversalChunk &chunk = world.traversalChunks[ix >> 5][iy >> 5][iz >> 5];
+                        const int lx = ix & 31;
+                        const int ly = iy & 31;
+                        const int lz = iz & 31;
+
+                        const float jump = std::max({
+                            STEP(chunk.distanceToClosestVoxel, 32.0f),
+                            STEP(chunk.distance16[IDX(lx >> 4,ly >> 4,lz >> 4,2)], 16.0f),
+                            STEP(chunk.distance8[IDX(lx >> 3,ly >> 3,lz >> 3,4)], 8.0f),
+                            STEP(chunk.distance4[IDX(lx >> 2,ly >> 2,lz >> 2,8)], 4.0f)
+                        });
+                        const float coneRadius = t * coneSlope + CONE_GUARD;
+                        const float remainingSafe = jump - coneRadius;
+                        if (remainingSafe <= 0.0f) break;
+
+                        const float advance = remainingSafe / (1.0f + coneSlope);
+                        if (advance <= 0.0001f) break;
+
+                        t += advance;
+                    }
+
+                    const float seedT = std::max(0.0f, t - 0.25f);
+                    for (int dy = 0; dy < LOW_SCALE; ++dy) {
+                        for (int dx = 0; dx < LOW_SCALE; ++dx) {
+                            oldDistance[(baseX + dx) + (baseY + dy) * width] = seedT;
                         }
                     }
                 }
             }
+            
             
             auto renderStart = Clock::now();
             #pragma omp parallel for simd
@@ -330,15 +329,9 @@ class App {
                                                 int by = iy & ~(cellSize - 1);
                                                 int bz = iz & ~(cellSize - 1);
 
-                                                float tx = ((sunDirSX > 0.0f ? bx + cellSize : bx) - voxelX)
-                                                        * invDx;
-
-                                                float ty = ((sunDirSY > 0.0f ? by + cellSize : by) - voxelY)
-                                                        * invDy;
-
-                                                float tz = ((sunDirSZ > 0.0f ? bz + cellSize : bz) - voxelZ)
-                                                        * invDz;
-
+                                                float tx = (bx + sunPosX * cellSize - voxelX) * invDx;
+                                                float ty = (by + sunPosY * cellSize - voxelY) * invDy;
+                                                float tz = (bz + sunPosZ * cellSize - voxelZ) * invDz;
                                                 float change = std::min({tx, ty, tz}) + 0.0001f;
 
                                                 t += change;
@@ -392,10 +385,13 @@ class App {
                             int by = iy & ~(cellSize - 1);
                             int bz = iz & ~(cellSize - 1);
 
-                            float tx = ((sx > 0.0f ? bx + cellSize : bx) - voxelX) * invDirLocal.x;
-                            float ty = ((sy > 0.0f ? by + cellSize : by) - voxelY) * invDirLocal.y;
-                            float tz = ((sz > 0.0f ? bz + cellSize : bz) - voxelZ) * invDirLocal.z;
+                            float ox = (sx + 1.0f) * 0.5f * cellSize;
+                            float oy = (sy + 1.0f) * 0.5f * cellSize;
+                            float oz = (sz + 1.0f) * 0.5f * cellSize;
 
+                            float tx = (bx + ox - voxelX) * invDirLocal.x;
+                            float ty = (by + oy - voxelY) * invDirLocal.y;
+                            float tz = (bz + oz - voxelZ) * invDirLocal.z;
                             t += std::min({tx, ty, tz}) + 0.0001f;
 
                         }                    
