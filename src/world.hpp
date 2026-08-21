@@ -3,6 +3,9 @@
 #include <cinttypes>
 #include "raymath.h"
 #include <queue>
+#include <cstring>
+#include <unordered_map>
+#include <vector>
 const float FOVY = 120.0f;
 const float SCALE = 1;
 const int width = 1000/SCALE;
@@ -95,11 +98,11 @@ struct VoxelChunk {
 };
 struct TraversalChunk {
     uint8_t distanceToClosestVoxel=0;
-    uint64_t *occupancy;
-    //do dedupe
-    uint8_t *distance16; //size 2
-    uint8_t *distance8; //size 4
-    uint8_t *distance4; //size 8
+    uint64_t *occupancy = nullptr;
+    // Shared after dedupe; nullptr means this LOD does not allocate the field.
+    uint8_t *distance16 = nullptr; //size 2
+    uint8_t *distance8 = nullptr; //size 4
+    uint8_t *distance4 = nullptr; //size 8
     uint8_t buildID = 0;
     void Init(int cellSize) {
         
@@ -464,6 +467,75 @@ struct World {
             }
         }
         
+        // Dedupe immutable distance fields and post-LOD voxel buffers.
+        // Hash first, then memcmp to protect against hash collisions.
+        auto hashBytes = [](const uint8_t *data, size_t count) -> uint64_t {
+            uint64_t hash = 1469598103934665603ull;
+            for (size_t i = 0; i < count; ++i) {
+                hash ^= data[i];
+                hash *= 1099511628211ull;
+            }
+            return hash;
+        };
+
+        auto dedupeBytes = [&](uint8_t *&data, size_t count,
+                               std::unordered_map<uint64_t, std::vector<uint8_t*>> &seen) -> bool {
+            if (!data || count == 0) return false;
+
+            const uint64_t hash = hashBytes(data, count);
+            auto &candidates = seen[hash];
+            for (uint8_t *candidate : candidates) {
+                if (std::memcmp(data, candidate, count) == 0) {
+                    MemFree(data);
+                    data = candidate;
+                    return true;
+                }
+            }
+
+            candidates.push_back(data);
+            return false;
+        };
+
+        std::unordered_map<uint64_t, std::vector<uint8_t*>> distance16Seen;
+        std::unordered_map<uint64_t, std::vector<uint8_t*>> distance8Seen;
+        std::unordered_map<uint64_t, std::vector<uint8_t*>> distance4Seen;
+        std::unordered_map<uint64_t, std::vector<uint8_t*>> voxelSeenBySize[33];
+
+        int dedupedDistance16 = 0;
+        int dedupedDistance8 = 0;
+        int dedupedDistance4 = 0;
+        int dedupedVoxels = 0;
+
+        for (int x = 0; x < WORLD_WIDTH/32; ++x) {
+            for (int y = 0; y < WORLD_HEIGHT/32; ++y) {
+                for (int z = 0; z < WORLD_DEPTH/32; ++z) {
+                    TraversalChunk &traversalChunk = traversalChunks[x][y][z];
+                    VoxelChunk &voxelChunk = voxelChunks[x][y][z];
+
+                    if (dedupeBytes(traversalChunk.distance16, 2 * 2 * 2, distance16Seen))
+                        ++dedupedDistance16;
+
+                    if (traversalChunk.distance8 &&
+                        dedupeBytes(traversalChunk.distance8, 4 * 4 * 4, distance8Seen))
+                        ++dedupedDistance8;
+
+                    if (traversalChunk.distance4 &&
+                        dedupeBytes(traversalChunk.distance4, 8 * 8 * 8, distance4Seen))
+                        ++dedupedDistance4;
+
+                    if (voxelChunk.containsBlocks && voxelChunk.lod != 32 &&
+                        voxelChunk.voxels && voxelChunk.size > 0) {
+                        const size_t voxelCount = static_cast<size_t>(voxelChunk.size) *
+                                                  voxelChunk.size * voxelChunk.size;
+                        if (dedupeBytes(voxelChunk.voxels, voxelCount,
+                                        voxelSeenBySize[voxelChunk.size])) {
+                            ++dedupedVoxels;
+                        }
+                    }
+                }
+            }
+        }
+
         bool checked[WORLD_WIDTH/32][WORLD_HEIGHT/32][WORLD_DEPTH/32] = {false};
         for (int x = 0; x < WORLD_WIDTH/32; x++) {
             for (int y= 0 ; y < WORLD_HEIGHT/32; y++) {
@@ -500,7 +572,12 @@ struct World {
                 }
             }
         }
-        std::cout<<"Chunks with one voxel: " << id<<" chunks with data: "<<chunksWidthData<<" \n";
+        std::cout<<"Chunks with one voxel: " << id
+                 <<" chunks with data: "<<chunksWidthData
+                 <<" deduped distance16: "<<dedupedDistance16
+                 <<" distance8: "<<dedupedDistance8
+                 <<" distance4: "<<dedupedDistance4
+                 <<" voxels: "<<dedupedVoxels<<" \n";
         UnloadImage(noise);
     }
 };
