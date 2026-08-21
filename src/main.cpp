@@ -29,7 +29,9 @@ Vector3 sunDirection = Vector3Normalize((Vector3){ 0.8f, 0.2f, 0.2f });
 float sunDirSX = copysignf(1.0f, sunDirection.x);
 float sunDirSY = copysignf(1.0f, sunDirection.y);
 float sunDirSZ = copysignf(1.0f, sunDirection.z);
-
+float invDx = 1.0f / sunDirection.x;
+float invDy = 1.0f / sunDirection.y;
+float invDz = 1.0f / sunDirection.z;
 class App {
     public:
     Camera camera;
@@ -200,7 +202,7 @@ class App {
                     float sx = copysignf(1.0f, direction.x);
                     float sy = copysignf(1.0f, direction.y);
                     float sz = copysignf(1.0f, direction.z);
-
+                    Vector3 invDirLocal = {1/direction.x,1/direction.y,1/direction.z};
                     while (t < RENDERDISTANCE ) {
                         float voxelX = camera.position.x + direction.x * t;
                         float voxelY = camera.position.y + direction.y * t;
@@ -244,7 +246,9 @@ class App {
                                     voxelX+=sampleDir.x;
                                     voxelY+=sampleDir.y;
                                     voxelZ+=sampleDir.z;
-                                    uint8_t lightVal = world.voxelChunks[(int)voX/32][(int)voY/32][(int)voZ/32].voxelLightValue[IDX(voX%32,voY%32,voZ%32,32)];
+                                    int size = world.voxelChunks[(int)voX/32][(int)voY/32][(int)voZ/32].size;
+                                    int lod = world.voxelChunks[(int)voX/32][(int)voY/32][(int)voZ/32].lod;
+                                    uint8_t lightVal = world.voxelChunks[(int)voX/32][(int)voY/32][(int)voZ/32].voxelLightValue[IDX((voX%32)/lod,(voY%32)/lod,(voZ%32)/lod,size)];
                                     if (lightVal!=0) {
                                         if (lightVal==2) {
                                             strength = 0.8f;
@@ -260,9 +264,7 @@ class App {
                                             {
                                                 world.voxelChunks[voX >> 5][voY >> 5][voZ >> 5]
                                                     .voxelLightValue[
-                                                        ((voX & 31) << 10) |
-                                                        ((voY & 31) << 5) |
-                                                        (voZ & 31)
+                                                        IDX((voX%32)/lod,(voY%32)/lod,(voZ%32)/lod,size)
                                                     ] = 1;
                                                 break;
                                             }
@@ -291,9 +293,7 @@ class App {
 
                                                     world.voxelChunks[voX >> 5][voY >> 5][voZ >> 5]
                                                         .voxelLightValue[
-                                                            ((voX & 31) << 10) |
-                                                            ((voY & 31) << 5) |
-                                                            (voZ & 31)
+                                                            IDX((voX%32)/lod,(voY%32)/lod,(voZ%32)/lod,size)
                                                         ] = 2;
 
                                                     break;
@@ -331,13 +331,13 @@ class App {
                                                 int bz = iz & ~(cellSize - 1);
 
                                                 float tx = ((sunDirSX > 0.0f ? bx + cellSize : bx) - voxelX)
-                                                        / sampleDir.x;
+                                                        * invDx;
 
                                                 float ty = ((sunDirSY > 0.0f ? by + cellSize : by) - voxelY)
-                                                        / sampleDir.y;
+                                                        * invDy;
 
                                                 float tz = ((sunDirSZ > 0.0f ? bz + cellSize : bz) - voxelZ)
-                                                        / sampleDir.z;
+                                                        * invDz;
 
                                                 float change = std::min({tx, ty, tz}) + 0.0001f;
 
@@ -392,9 +392,9 @@ class App {
                             int by = iy & ~(cellSize - 1);
                             int bz = iz & ~(cellSize - 1);
 
-                            float tx = ((sx > 0.0f ? bx + cellSize : bx) - voxelX) / direction.x;
-                            float ty = ((sy > 0.0f ? by + cellSize : by) - voxelY) / direction.y;
-                            float tz = ((sz > 0.0f ? bz + cellSize : bz) - voxelZ) / direction.z;
+                            float tx = ((sx > 0.0f ? bx + cellSize : bx) - voxelX) * invDirLocal.x;
+                            float ty = ((sy > 0.0f ? by + cellSize : by) - voxelY) * invDirLocal.y;
+                            float tz = ((sz > 0.0f ? bz + cellSize : bz) - voxelZ) * invDirLocal.z;
 
                             t += std::min({tx, ty, tz}) + 0.0001f;
 

@@ -77,18 +77,6 @@ struct VoxelChunk {
                 free(voxels);
                 voxels = lodVer;
             }
-            
-            for (int x = 0; x < 32; x++) {
-                for (int y= 0 ; y < 32; y++) {
-                    for (int z = 0; z < 32; z++) {
-                        if (tt!=voxels[IDX(x,y,z,32)]&& voxels[IDX(x,y,z,32)]!=0) {
-                            return false;
-                        }
-                    }
-                }
-            }
-            free(voxels);
-            palletized = tt;
             return true;
         }
         return false;
@@ -454,8 +442,9 @@ struct World {
                     }
                     else {
                         traversalChunks[x][y][z].BuildOccupancyMask(voxelChunks[x][y][z].voxels);
-                        voxelChunks[x][y][z].voxelLightValue = (uint8_t*)MemAlloc(32*32*32); 
-                        for (int i = 0; i < 32*32*32; i++) {
+                        int size = 32/traversalChunks[x][y][z].buildID;
+                        voxelChunks[x][y][z].voxelLightValue = (uint8_t*)MemAlloc(size*size*size); 
+                        for (int i = 0; i < size*size*size; i++) {
                             voxelChunks[x][y][z].voxelLightValue[i] = 0;
                         }
                         chunksWidthData+=1;
@@ -463,6 +452,7 @@ struct World {
                 }
             }
         }
+        
         int id = 0;
         for (int x = 0; x < WORLD_WIDTH/32; x++) {
             for (int y= 0 ; y < WORLD_HEIGHT/32; y++) {
@@ -474,6 +464,42 @@ struct World {
                 }
             }
         }
+        /*
+        bool checked[WORLD_WIDTH/32][WORLD_HEIGHT/32][WORLD_DEPTH/32] = {false};
+        for (int x = 0; x < WORLD_WIDTH/32; x++) {
+            for (int y= 0 ; y < WORLD_HEIGHT/32; y++) {
+                for (int z = 0; z < WORLD_DEPTH/32; z++) {
+                    if (voxelChunks[x][y][z].containsBlocks) {
+                        if (!checked[x][y][z]) {
+                            for (int dx = 0; dx < WORLD_WIDTH/32; dx++) {
+                                for (int dy= 0 ; dy < WORLD_HEIGHT/32; dy++) {
+                                    for (int dz = 0; dz < WORLD_DEPTH/32; dz++) {
+                                        if (!(dx==x && dy==y && dz==z)) {
+                                            if (!checked[dx][dy][dz] && voxelChunks[x][y][z].containsBlocks) {
+                                                bool similar = true;
+                                                for (int i = 0; i < 512; i++) {
+                                                    if (traversalChunks[x][y][z].occupancy[i]!=traversalChunks[dx][dy][dz].occupancy[i]) {
+                                                        similar = false;
+                                                        break;
+                                                    }
+
+                                                }
+                                                if (similar) {
+                                                    checked[dx][dy][dz] = true;
+                                                    free(traversalChunks[dx][dy][dz].occupancy);
+                                                    traversalChunks[dx][dy][dz].occupancy = traversalChunks[x][y][z].occupancy;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            checked[x][y][z] = true;
+                        }
+                    }
+                }
+            }
+        }*/
         std::cout<<"Chunks with one voxel: " << id<<" chunks with data: "<<chunksWidthData<<" \n";
         UnloadImage(noise);
     }

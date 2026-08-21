@@ -113,9 +113,9 @@ endif
 
 CFLAGS += -Wall -std=c++14 -D_DEFAULT_SOURCE -Wno-missing-braces -fopenmp -mavx -mavx2 -mfma -mfpmath=sse
 ifeq ($(BUILD_MODE),DEBUG)
-    CFLAGS += -g -O3 -funroll-loops -fopt-info-vec-optimized
+    CFLAGS += -g -O3 -funroll-loops -fopt-info-vec-optimized -ffast-math
 else
-    CFLAGS += -s -O3 -funroll-loops -fopt-info-vec-optimized
+    CFLAGS += -s -O3 -funroll-loops -fopt-info-vec-optimized -ffast-math
 endif
 
 ifeq ($(PLATFORM),PLATFORM_DESKTOP)
