@@ -96,8 +96,7 @@ struct VoxelChunk {
 struct TraversalChunk {
     uint8_t distanceToClosestVoxel=0;
     uint64_t *occupancy;
-    //this adds a lot of memory, for empty chunks or far away chunks they shouldn't even be allocated or calculated so they should be switched to being heap based instead 
-    //And it probably makes the memory access slower causing slower traversal
+    //do dedupe
     uint8_t *distance16; //size 2
     uint8_t *distance8; //size 4
     uint8_t *distance4; //size 8
@@ -464,7 +463,7 @@ struct World {
                 }
             }
         }
-        /*
+        
         bool checked[WORLD_WIDTH/32][WORLD_HEIGHT/32][WORLD_DEPTH/32] = {false};
         for (int x = 0; x < WORLD_WIDTH/32; x++) {
             for (int y= 0 ; y < WORLD_HEIGHT/32; y++) {
@@ -475,7 +474,7 @@ struct World {
                                 for (int dy= 0 ; dy < WORLD_HEIGHT/32; dy++) {
                                     for (int dz = 0; dz < WORLD_DEPTH/32; dz++) {
                                         if (!(dx==x && dy==y && dz==z)) {
-                                            if (!checked[dx][dy][dz] && voxelChunks[x][y][z].containsBlocks) {
+                                            if (!checked[dx][dy][dz] && voxelChunks[dx][dy][dz].containsBlocks) {
                                                 bool similar = true;
                                                 for (int i = 0; i < 512; i++) {
                                                     if (traversalChunks[x][y][z].occupancy[i]!=traversalChunks[dx][dy][dz].occupancy[i]) {
@@ -488,6 +487,7 @@ struct World {
                                                     checked[dx][dy][dz] = true;
                                                     free(traversalChunks[dx][dy][dz].occupancy);
                                                     traversalChunks[dx][dy][dz].occupancy = traversalChunks[x][y][z].occupancy;
+                                                    
                                                 }
                                             }
                                         }
@@ -499,7 +499,7 @@ struct World {
                     }
                 }
             }
-        }*/
+        }
         std::cout<<"Chunks with one voxel: " << id<<" chunks with data: "<<chunksWidthData<<" \n";
         UnloadImage(noise);
     }

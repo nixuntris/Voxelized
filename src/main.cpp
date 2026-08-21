@@ -115,6 +115,7 @@ class App {
             constexpr int LOW_SCALE = 4;
             constexpr float CONE_GUARD = 1.5f;
 
+            auto lowrenderStart = Clock::now();
             #pragma omp parallel for collapse(2)
             for (int by = 0; by < height / LOW_SCALE; ++by) {
                 for (int bx = 0; bx < width / LOW_SCALE; ++bx) {
@@ -125,12 +126,21 @@ class App {
                     const Vector3 d30 = directionStorage[(baseX + 3) + (baseY + 0) * width];
                     const Vector3 d03 = directionStorage[(baseX + 0) + (baseY + 3) * width];
                     const Vector3 d33 = directionStorage[(baseX + 3) + (baseY + 3) * width];
-
-                    Vector3 direction = Vector3Normalize({
+                    Vector3 direction = {
                         d00.x + d30.x + d03.x + d33.x,
                         d00.y + d30.y + d03.y + d33.y,
                         d00.z + d30.z + d03.z + d33.z
-                    });
+                    };
+
+                    float length = sqrtf(direction.x*direction.x + direction.y*direction.y + direction.z*direction.z);
+                    if (length != 0.0f)
+                    {
+                        float ilength = 1.0f/length;
+
+                        direction.x *= ilength;
+                        direction.y *= ilength;
+                        direction.z *= ilength;
+                    }
 
                     const float coneSlope = std::max({
                         DIRECTION_DELTA(d00), DIRECTION_DELTA(d30),
@@ -156,7 +166,7 @@ class App {
                         const int lx = ix & 31;
                         const int ly = iy & 31;
                         const int lz = iz & 31;
-
+                        
                         const float jump = std::max({
                             STEP(chunk.distanceToClosestVoxel, 32.0f),
                             STEP(chunk.distance16[IDX(lx >> 4,ly >> 4,lz >> 4,2)], 16.0f),
@@ -169,8 +179,8 @@ class App {
 
                         const float advance = remainingSafe / (1.0f + coneSlope);
                         if (advance <= 0.0001f) break;
-
                         t += advance;
+                        if (t>LOD2_START) t += advance*0.5;
                     }
 
                     const float seedT = std::max(0.0f, t - 0.25f);
@@ -182,6 +192,7 @@ class App {
                 }
             }
             
+            auto lowrenderEnd = Clock::now();
             
             auto renderStart = Clock::now();
             #pragma omp parallel for simd
@@ -416,7 +427,9 @@ class App {
             double loopTime = ms(loopStart, loopEnd);
             double totalTime = ms(totalStart, loopEnd);
             
-            std::cout << "Frame " << frame << " | Direction: " << dirTime  << "ms | Render: " << renderTime << "ms | Total Loop: " << loopTime << "ms | Total Runtime: " << totalTime << "ms" << std::endl;
+            double lowrenderTime = ms(lowrenderStart, lowrenderEnd);
+            
+            std::cout << "Frame " << frame <<"Low render: "<<lowrenderTime<< " | Direction: " << dirTime  << "ms | Render: " << renderTime << "ms | Total Loop: " << loopTime << "ms | Total Runtime: " << totalTime << "ms" << std::endl;
             
             DrawFPS(0, 0);
 

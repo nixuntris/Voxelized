@@ -111,11 +111,11 @@ ifeq ($(PLATFORM),PLATFORM_DESKTOP)
     endif
 endif
 
-CFLAGS += -Wall -std=c++14 -D_DEFAULT_SOURCE -Wno-missing-braces -fopenmp -mavx -mavx2 -mfma -mfpmath=sse
+CFLAGS += -Wall -std=c++14 -D_DEFAULT_SOURCE -Wno-missing-braces -fopenmp -mavx -mavx2 -mfma -mfpmath=sse -fno-math-errno -fno-trapping-math -fomit-frame-pointer
 ifeq ($(BUILD_MODE),DEBUG)
-    CFLAGS += -g -O3 -funroll-loops -fopt-info-vec-optimized -ffast-math
+    CFLAGS += -g -O3 -funroll-loops -fopt-info-vec-optimized -ffast-math -ftree-vectorize
 else
-    CFLAGS += -s -O3 -funroll-loops -fopt-info-vec-optimized -ffast-math
+    CFLAGS += -s -O3 -funroll-loops -fopt-info-vec-optimized -ffast-math -ftree-vectorize
 endif
 
 ifeq ($(PLATFORM),PLATFORM_DESKTOP)
