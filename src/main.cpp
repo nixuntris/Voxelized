@@ -200,8 +200,8 @@ class App {
             
             auto renderStart = Clock::now();
             #pragma omp parallel for simd
-            for (int x = 0; x < width; x++) {
-                for (int y = 0; y < height; y++) {
+            for (int x = 0; x < width/3; x++) {
+                for (int y = 0; y < height/3; y++) {
                     int idx = (y * imageBuffer.width + x) * 3;
                     int pixelIndex = x + y * width;
 
