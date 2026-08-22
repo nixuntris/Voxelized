@@ -1,7 +1,7 @@
 This is an implementantion of a cpu raytracer.
 It's meant to run in real time, and is developed on a ryzen 5950x, it currently doesn't have completely implemented avx2 instructions for simding ray traversal.
 
-IT REQUIRES AVX2 INSTRUCTIONS TO BE SUPPORTED BY YOUR CPU OR OTHERWISE IT WILL CRASH
+IT REQUIRES AVX2 INSTRUCTIONS TO BE SUPPORTED BY YOUR CPU OR OTHERWISE IT WILL CRASH (If you are a judge reading this, your windows VM might not have avx2 enabled)
 
 ![](preview.jpg)
 
