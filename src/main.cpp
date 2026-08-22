@@ -28,6 +28,15 @@ float invDz = 1.0f / sunDirection.z;
 int sunPosX = sunDirection.x > 0.0f;
 int sunPosY = sunDirection.y > 0.0f;
 int sunPosZ = sunDirection.z > 0.0f;
+bool has_avx2()
+{
+#if defined(__x86_64__) || defined(__i386__)
+    __builtin_cpu_init();
+    return __builtin_cpu_supports("avx2");
+#else
+    return false;
+#endif
+}
 class App {
     public:
     Camera camera;

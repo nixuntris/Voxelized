@@ -1,5 +1,8 @@
 This is an implementantion of a cpu raytracer.
 It's meant to run in real time, and is developed on a ryzen 5950x, it currently doesn't have completely implemented avx2 instructions for simding ray traversal.
+
+IT REQUIRES AVX2 INSTRUCTIONS TO BE SUPPORTED BY YOUR CPU OR OTHERWISE IT WILL CRASH
+
 ![](preview.jpg)
 
 The project has raylib linked to where it's installed by the raylib installer, if you have it installed somewhere else you need to change the COMPILER_PATH variable in the Makefile to where it's saved.

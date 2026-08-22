@@ -67,8 +67,8 @@ const float LOD4_START  = 4.0f  / PIXEL_WORLD_SLOPE;
 const float LOD8_START  = 8.0f  / PIXEL_WORLD_SLOPE;
 const float LOD16_START = 16.0f / PIXEL_WORLD_SLOPE;
 
-const int WORLD_WIDTH = 3072;
-const int WORLD_DEPTH = 3072;
+const int WORLD_WIDTH = 2048;
+const int WORLD_DEPTH = 2048;
 const int WORLD_HEIGHT = 512;
 const int RENDERDISTANCE = 2048;
 struct VoxelChunk {

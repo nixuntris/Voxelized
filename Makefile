@@ -111,13 +111,21 @@ ifeq ($(PLATFORM),PLATFORM_DESKTOP)
     endif
 endif
 
-CFLAGS += -Wall -std=c++14 -D_DEFAULT_SOURCE -Wno-missing-braces -fopenmp -mavx -mavx2 -mfma -mfpmath=sse -fno-math-errno -fno-trapping-math -fomit-frame-pointer
-ifeq ($(BUILD_MODE),DEBUG)
-    CFLAGS += -g -O3 -funroll-loops -fopt-info-vec-optimized -ffast-math -ftree-vectorize
-else
-    CFLAGS += -s -O3 -funroll-loops -fopt-info-vec-optimized -ffast-math -ftree-vectorize
-endif
+CFLAGS += -Wall \
+            -std=c++14 \
+            -D_DEFAULT_SOURCE \
+            -Wno-missing-braces \
+            -fopenmp \
+            -fno-math-errno \
+            -fno-trapping-math \
+            -fomit-frame-pointer
 
+CXXFLAGS += -s \
+            -O3 \
+            -funroll-loops \
+            -fopt-info-vec-optimized \
+            -ffast-math \
+            -ftree-vectorize
 ifeq ($(PLATFORM),PLATFORM_DESKTOP)
     ifeq ($(PLATFORM_OS),WINDOWS)
         CFLAGS += $(RAYLIB_PATH)/src/raylib.rc.data
