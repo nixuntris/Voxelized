@@ -8,6 +8,8 @@
 #include <vector>
 #include <set>
 #include <unordered_set>
+#define CELL_PTR(chunk, cellSize) \
+    ((cellSize) == 8 ? &(chunk).distance8[0] : &(chunk).distance4[0])
 enum VoxelTypes {
     AIR=0,
     GRASS=1,
@@ -155,6 +157,7 @@ struct TraversalChunk {
     uint8_t *distance8 = nullptr; //size 4
     uint8_t *distance4 = nullptr; //size 8
     uint8_t buildID = 0;
+    uint8_t only;
     bool quantized = false;
     void Init(int cellSize) {
         
@@ -171,11 +174,12 @@ struct TraversalChunk {
             
     }
     bool CheckDelta(int cellSize) {
-    
+        
         int smallest = 255;
         int biggest = 0;
         bool only255= true;
         bool onl0 = true;
+
         if (cellSize < 8) {
             int smallest = 255;
             int biggest = 0;
@@ -186,8 +190,14 @@ struct TraversalChunk {
                 if (distance4[i] < smallest) smallest = distance4[i];
                 if (distance4[i] > biggest) biggest = distance4[i];
             }
-            if (only255 || onl0) {
-                //std::cout<<"Huh\n";
+            only = 3;
+            if (only255 ) {
+                only = 255;
+                free(distance4);
+            }
+            else if (onl0) {
+                only = 0;
+                free(distance4);
             }
             if (smallest != 255 && biggest != 0) {
 
@@ -292,17 +302,11 @@ struct World {
             }
         }
     }
-    uint8_t *cellPtr(TraversalChunk &chunk, int cellSize) {
-
-        if (cellSize == 16) return &chunk.distance16[0];
-        if (cellSize == 8) return &chunk.distance8[0];
-        return &chunk.distance4[0];
-    }
-    void BuildDistanceLayer(int cellSize) {
-        const int cellsPerChunk = 32 / cellSize;
-        const int gridX = WORLD_WIDTH / cellSize;
-        const int gridY = WORLD_HEIGHT / cellSize;
-        const int gridZ = WORLD_DEPTH / cellSize;
+    void BuildDistanceLayerBaseline() { //You already know it will always be 16
+        const int cellsPerChunk = 32 / 16;
+        const int gridX = WORLD_WIDTH / 16;
+        const int gridY = WORLD_HEIGHT / 16;
+        const int gridZ = WORLD_DEPTH / 16;
 
 
         for (int cx = 0; cx < WORLD_WIDTH / 32; ++cx) {
@@ -311,9 +315,113 @@ struct World {
                     VoxelChunk &voxelChunk = voxelChunks[cx][cy][cz];
                     TraversalChunk &traversalChunk = traversalChunks[cx][cy][cz];
                                         
+                    if (traversalChunk.buildID > 16)
+                        continue;
+                    uint8_t *distance = &traversalChunk.distance16[0];
+                    std::fill(distance, distance + cellsPerChunk * cellsPerChunk * cellsPerChunk, 255);
+                    if (!voxelChunk.containsBlocks) continue;
+
+                    for (int sx = 0; sx < cellsPerChunk; ++sx) {
+                        for (int sy = 0; sy < cellsPerChunk; ++sy) {
+                            for (int sz = 0; sz < cellsPerChunk; ++sz) {
+                                bool occupied = false;
+                                const int bx = sx * 16;
+                                const int by = sy * 16;
+                                const int bz = sz * 16;
+
+                                for (int x = 0; x < 16 && !occupied; ++x)
+                                    for (int y = 0; y < 16 && !occupied; ++y)
+                                        for (int z = 0; z < 16; ++z)
+                                        
+                                            if (voxelChunk.voxels[IDX(bx+x,by+y,bz+z,32)]) {
+                                                occupied = true;
+                                                break;
+                                            }
+
+                                if (occupied)
+                                    distance[IDX(sx,sy,sz,cellsPerChunk)] = 0;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        for (int x = 0; x < gridX; ++x) {
+            for (int y = 0; y < gridY; ++y) {
+                for (int z = 0; z < gridZ; ++z) {
+                            
+                    int cx = x / cellsPerChunk;
+                    int cy = y / cellsPerChunk;
+                    int cz = z / cellsPerChunk;
+
+                    TraversalChunk &traversalChunk =
+                        traversalChunks[cx][cy][cz];
+
+                    if (traversalChunk.buildID > 16)
+                        continue;
+                    
+                    uint8_t &cur = traversalChunk.distance16[IDX(x%cellsPerChunk,y%cellsPerChunk,z%cellsPerChunk,cellsPerChunk)];
+                    for (int dx = -1; dx <= 1; ++dx) {
+                        for (int dy = -1; dy <= 1; ++dy) {
+                            for (int dz = -1; dz <= 1; ++dz) {
+                                if (!(dx < 0 || (dx == 0 && dy < 0) || (dx == 0 && dy == 0 && dz < 0))) continue;
+                                const int nx = x + dx, ny = y + dy, nz = z + dz;
+                                if (nx < 0 || ny < 0 || nz < 0 || nx >= gridX || ny >= gridY || nz >= gridZ) continue;
+                                const uint8_t n = traversalChunks[nx / cellsPerChunk][ny / cellsPerChunk][nz/cellsPerChunk].distance16[IDX(nx%cellsPerChunk,ny%cellsPerChunk,nz%cellsPerChunk,cellsPerChunk)];
+                                if (n < 254) cur = std::min<uint8_t>(cur, static_cast<uint8_t>(n + 1));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        for (int x = gridX - 1; x >= 0; --x) {
+            for (int y = gridY - 1; y >= 0; --y) {
+                for (int z = gridZ - 1; z >= 0; --z) {
+                    
+                    int cx = x / cellsPerChunk;
+                    int cy = y / cellsPerChunk;
+                    int cz = z / cellsPerChunk;
+
+                    TraversalChunk &traversalChunk =
+                        traversalChunks[cx][cy][cz];
+
+                    if (traversalChunk.buildID > 16)
+                        continue;
+                    uint8_t &cur = traversalChunk.distance16[IDX(x%cellsPerChunk,y%cellsPerChunk,z%cellsPerChunk,cellsPerChunk)];
+                    for (int dx = -1; dx <= 1; ++dx) {
+                        for (int dy = -1; dy <= 1; ++dy) {
+                            for (int dz = -1; dz <= 1; ++dz) {
+                                if (!(dx > 0 || (dx == 0 && dy > 0) || (dx == 0 && dy == 0 && dz > 0))) continue;
+                                const int nx = x + dx, ny = y + dy, nz = z + dz;
+                                if (nx < 0 || ny < 0 || nz < 0 || nx >= gridX || ny >= gridY || nz >= gridZ) continue;
+                                const uint8_t n = traversalChunks[nx / cellsPerChunk][ny / cellsPerChunk][nz/cellsPerChunk].distance16[IDX(nx%cellsPerChunk,ny%cellsPerChunk,nz%cellsPerChunk,cellsPerChunk)];
+                                if (n < 254) cur = std::min<uint8_t>(cur, static_cast<uint8_t>(n + 1));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    void BuildDistanceLayer(int cellSize) {
+        const int cellsPerChunk = 32 / cellSize;
+        const int gridX = WORLD_WIDTH / cellSize;
+        const int gridY = WORLD_HEIGHT / cellSize;
+        const int gridZ = WORLD_DEPTH / cellSize;
+
+        
+#pragma omp parallel for collapse(3)
+        for (int cx = 0; cx < WORLD_WIDTH / 32; ++cx) {
+            for (int cy = 0; cy < WORLD_HEIGHT / 32; ++cy) {
+                for (int cz = 0; cz < WORLD_DEPTH / 32; ++cz) {
+                    VoxelChunk &voxelChunk = voxelChunks[cx][cy][cz];
+                    TraversalChunk &traversalChunk = traversalChunks[cx][cy][cz];
+                                        
                     if (traversalChunk.buildID > cellSize)
                         continue;
-                    uint8_t *distance = cellPtr(traversalChunk,cellSize);
+                    uint8_t *distance = CELL_PTR(traversalChunk,cellSize);
                     std::fill(distance, distance + cellsPerChunk * cellsPerChunk * cellsPerChunk, 255);
                     if (!voxelChunk.containsBlocks) continue;
 
@@ -342,6 +450,7 @@ struct World {
                 }
             }
         }
+#pragma omp parallel for collapse(3)
         for (int x = 0; x < gridX; ++x) {
             for (int y = 0; y < gridY; ++y) {
                 for (int z = 0; z < gridZ; ++z) {
@@ -355,21 +464,22 @@ struct World {
 
                     if (traversalChunk.buildID > cellSize)
                         continue;
-                    uint8_t &cur = cellPtr(traversalChunks[x / cellsPerChunk][y / cellsPerChunk][z/cellsPerChunk],cellSize)[IDX(x%cellsPerChunk,y%cellsPerChunk,z%cellsPerChunk,cellsPerChunk)];
+                    uint8_t &cur = CELL_PTR(traversalChunks[x / cellsPerChunk][y / cellsPerChunk][z/cellsPerChunk],cellSize)[IDX(x%cellsPerChunk,y%cellsPerChunk,z%cellsPerChunk,cellsPerChunk)];
                     for (int dx = -1; dx <= 1; ++dx) {
                         for (int dy = -1; dy <= 1; ++dy) {
                             for (int dz = -1; dz <= 1; ++dz) {
                                 if (!(dx < 0 || (dx == 0 && dy < 0) || (dx == 0 && dy == 0 && dz < 0))) continue;
                                 const int nx = x + dx, ny = y + dy, nz = z + dz;
                                 if (nx < 0 || ny < 0 || nz < 0 || nx >= gridX || ny >= gridY || nz >= gridZ) continue;
-                                const uint8_t n = cellPtr(traversalChunks[nx / cellsPerChunk][ny / cellsPerChunk][nz/cellsPerChunk],cellSize)[IDX(nx%cellsPerChunk,ny%cellsPerChunk,nz%cellsPerChunk,cellsPerChunk)];
-                                if (n < 254) cur = std::min<uint8_t>(cur, static_cast<uint8_t>(n + 1));
+                                const uint8_t n = CELL_PTR(traversalChunks[nx / cellsPerChunk][ny / cellsPerChunk][nz/cellsPerChunk],cellSize)[IDX(nx%cellsPerChunk,ny%cellsPerChunk,nz%cellsPerChunk,cellsPerChunk)];
+                                if (n < 254) cur = std::min<uint8_t>(cur, n + 1);
                             }
                         }
                     }
                 }
             }
         }
+#pragma omp parallel for collapse(3)
 
         for (int x = gridX - 1; x >= 0; --x) {
             for (int y = gridY - 1; y >= 0; --y) {
@@ -384,15 +494,15 @@ struct World {
 
                     if (traversalChunk.buildID > cellSize)
                         continue;
-                    uint8_t &cur = cellPtr(traversalChunks[x / cellsPerChunk][y / cellsPerChunk][z/cellsPerChunk],cellSize)[IDX(x%cellsPerChunk,y%cellsPerChunk,z%cellsPerChunk,cellsPerChunk)];
+                    uint8_t &cur = CELL_PTR(traversalChunks[x / cellsPerChunk][y / cellsPerChunk][z/cellsPerChunk],cellSize)[IDX(x%cellsPerChunk,y%cellsPerChunk,z%cellsPerChunk,cellsPerChunk)];
                     for (int dx = -1; dx <= 1; ++dx) {
                         for (int dy = -1; dy <= 1; ++dy) {
                             for (int dz = -1; dz <= 1; ++dz) {
                                 if (!(dx > 0 || (dx == 0 && dy > 0) || (dx == 0 && dy == 0 && dz > 0))) continue;
                                 const int nx = x + dx, ny = y + dy, nz = z + dz;
                                 if (nx < 0 || ny < 0 || nz < 0 || nx >= gridX || ny >= gridY || nz >= gridZ) continue;
-                                const uint8_t n = cellPtr(traversalChunks[nx / cellsPerChunk][ny / cellsPerChunk][nz/cellsPerChunk],cellSize)[IDX(nx%cellsPerChunk,ny%cellsPerChunk,nz%cellsPerChunk,cellsPerChunk)];
-                                if (n < 254) cur = std::min<uint8_t>(cur, static_cast<uint8_t>(n + 1));
+                                const uint8_t n = CELL_PTR(traversalChunks[nx / cellsPerChunk][ny / cellsPerChunk][nz/cellsPerChunk],cellSize)[IDX(nx%cellsPerChunk,ny%cellsPerChunk,nz%cellsPerChunk,cellsPerChunk)];
+                                if (n < 254) cur = std::min<uint8_t>(cur, n + 1);
                             }
                         }
                     }
@@ -417,35 +527,33 @@ struct World {
                 }
             }
         }
-        Image noise = GenImagePerlinNoise(
+        uint8_t * noise = GenImagePerlinNoiseOptimized(
             WORLD_WIDTH,
             WORLD_DEPTH,
             0.0f, 
             0.0f, 
             5.0f 
         );
-        Image noiseXY = GenImagePerlinNoise(
+        uint8_t *noiseXY = GenImagePerlinNoiseOptimized(
             WORLD_WIDTH, WORLD_HEIGHT,
             0, 0, 6.0f
         );
 
-        Image noiseXZ = GenImagePerlinNoise(
+        uint8_t *noiseXZ = GenImagePerlinNoiseOptimized(
             WORLD_WIDTH, WORLD_DEPTH,
             300, 700, 6.0f
         );
 
-        Image noiseYZ = GenImagePerlinNoise(
+        uint8_t *noiseYZ = GenImagePerlinNoiseOptimized(
             WORLD_DEPTH, WORLD_HEIGHT,
             900, 1300, 6.0f
         );
 
-        Color* pixelsXY = LoadImageColors(noiseXY);
-        Color* pixelsXZ = LoadImageColors(noiseXZ);
-        Color* pixelsYZ = LoadImageColors(noiseYZ);
+        std::cout<<"World gen beg\n";
 #pragma omp parallel for collapse(2)
         for (int x = 0; x < WORLD_WIDTH; x++) {
             for (int z = 0; z < WORLD_DEPTH; z++) {
-                int height = GetImageColor(noise,x,z).r;
+                int height = noise[z * WORLD_WIDTH + x];
                 bool hasGrass = false;
                 for (int y = 0; y <= height; y++) {
                     int cx = x/32;
@@ -455,9 +563,9 @@ struct World {
                     int id = IDX(x%32,y%32,z%32,32);
                     if (height==y) {
                         
-                        float xy = pixelsXY[y * WORLD_WIDTH + x].r / 255.0f;
-                        float xz = pixelsXZ[z * WORLD_WIDTH + x].r / 255.0f;
-                        float yz = pixelsYZ[y * WORLD_DEPTH + z].r / 255.0f;
+                        float xy = noiseXY[y * WORLD_WIDTH + x] / 255.0f;
+                        float xz = noiseXZ[z * WORLD_WIDTH + x] / 255.0f;
+                        float yz = noiseYZ[y * WORLD_DEPTH + z] / 255.0f;
 
                         float density = (xy + xz + yz) / 3.0f;
 
@@ -469,9 +577,9 @@ struct World {
                         }
                     }
                     else {
-                        float xy = pixelsXY[y * WORLD_WIDTH + x].r / 255.0f;
-                        float xz = pixelsXZ[z * WORLD_WIDTH + x].r / 255.0f;
-                        float yz = pixelsYZ[y * WORLD_DEPTH + z].r / 255.0f;
+                        float xy = noiseXY[y * WORLD_WIDTH + x] / 255.0f;
+                        float xz = noiseXZ[z * WORLD_WIDTH + x] / 255.0f;
+                        float yz = noiseYZ[y * WORLD_DEPTH + z] / 255.0f;
 
                         float density = (xy + xz + yz) / 3.0f;
 
@@ -482,12 +590,8 @@ struct World {
                             voxelChunks[cx][cy][cz].voxels[id] = STONE;
                         }
                         else if (y<50) {
-                            
-                            if (voxelChunks[cx][(y-1)/32][cz].voxels[IDX(x%32,(y-1)%32,z%32,32)]==STONE || y-1==0) {
-                                voxelChunks[cx][cy][cz].containsBlocks = true;
-                                voxelChunks[cx][cy][cz].voxels[id] = SAND;
-                                
-                            }
+                            voxelChunks[cx][cy][cz].containsBlocks = true;
+                            voxelChunks[cx][cy][cz].voxels[id] = WATER;    
                         }
                     }
                     if (hasGrass) {
@@ -542,11 +646,12 @@ struct World {
                 }
             }
         }
-        
+        std::cout<<"world gen\n";
         BuildDistanceToClosestVoxel();
-        BuildDistanceLayer(16);
+        BuildDistanceLayerBaseline();
         BuildDistanceLayer(8);
         BuildDistanceLayer(4);
+        std::cout<<"layers gen\n";
         int chunksWidthData = 0;
 #pragma omp parallel for collapse(3)
         for (int x = 0; x < WORLD_WIDTH/32; x++) {
@@ -568,6 +673,7 @@ struct World {
                 }
             }
         }
+        std::cout<<"occupancy gen\n";
         
         int id = 0;
         for (int x = 0; x < WORLD_WIDTH/32; x++) {
@@ -580,6 +686,8 @@ struct World {
                 }
             }
         }
+        std::cout<<"delta gen\n";
+        
         bool checked[WORLD_WIDTH/32][WORLD_HEIGHT/32][WORLD_DEPTH/32] = {false};
         for (int x = 0; x < WORLD_WIDTH/32; x++) {
             for (int y= 0 ; y < WORLD_HEIGHT/32; y++) {
@@ -617,7 +725,11 @@ struct World {
             }
         }
         std::cout<<"Total bytes: " << GetMemoryUsageBytes()<<"\n";
-                 UnloadImage(noise);
+        MemFree(noise);
+        MemFree(noiseXY);
+        MemFree(noiseXZ);
+        MemFree(noiseYZ);
+        
     }
     uint64_t GetMemoryUsageBytes() const {
     uint64_t total = sizeof(World);
