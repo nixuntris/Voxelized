@@ -272,7 +272,6 @@ inline uint8_t* GenImagePerlinNoiseOptimized(int width, int height, int offsetX,
         }
     }
 
-    // Vertical interpolation
     #pragma omp parallel for
     for (int y = 1; y < height - 1; y += 2)
     {

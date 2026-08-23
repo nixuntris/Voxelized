@@ -60,7 +60,7 @@ const VoxelData voxelMetaData[10] = {
     }
 };
 const float FOVY = 120.0f;
-const float SCALE = 1.5;
+const float SCALE = 1;
 const int width = 800/SCALE;
 const int height = 800/SCALE;
 const float PIXEL_WORLD_SLOPE = 2.0f * tanf(FOVY * 0.5f * DEG2RAD) / 1000;
@@ -69,8 +69,8 @@ const float LOD4_START  = 4.0f  / PIXEL_WORLD_SLOPE;
 const float LOD8_START  = 8.0f  / PIXEL_WORLD_SLOPE;
 const float LOD16_START = 16.0f / PIXEL_WORLD_SLOPE;
 
-const int WORLD_WIDTH = 2048;
-const int WORLD_DEPTH = 2048;
+const int WORLD_WIDTH = 512;
+const int WORLD_DEPTH = 512;
 const int WORLD_HEIGHT = 512;
 const int RENDERDISTANCE = 2048;
 struct VoxelChunk {
@@ -412,7 +412,6 @@ struct World {
         const int gridZ = WORLD_DEPTH / cellSize;
 
         
-#pragma omp parallel for collapse(3)
         for (int cx = 0; cx < WORLD_WIDTH / 32; ++cx) {
             for (int cy = 0; cy < WORLD_HEIGHT / 32; ++cy) {
                 for (int cz = 0; cz < WORLD_DEPTH / 32; ++cz) {
@@ -450,7 +449,6 @@ struct World {
                 }
             }
         }
-#pragma omp parallel for collapse(3)
         for (int x = 0; x < gridX; ++x) {
             for (int y = 0; y < gridY; ++y) {
                 for (int z = 0; z < gridZ; ++z) {
@@ -479,7 +477,6 @@ struct World {
                 }
             }
         }
-#pragma omp parallel for collapse(3)
 
         for (int x = gridX - 1; x >= 0; --x) {
             for (int y = gridY - 1; y >= 0; --y) {
@@ -510,23 +507,7 @@ struct World {
             }
         }
     }
-    void Init(Vector3 cameraPosition) {
-        for (int x = 0; x < WORLD_WIDTH/32; x++) {
-            for (int y= 0 ; y < WORLD_HEIGHT/32; y++) {
-                for (int z = 0; z < WORLD_DEPTH/32; z++) {
-                    float dist = Vector3Distance(cameraPosition,{(float)x*32,(float)y*32,(float)z*32});
-                    int lod = 1;
-                    if (dist>LOD2_START) lod = 2;
-                    if (dist>LOD4_START) lod = 4;
-                    if (dist>LOD8_START) lod = 8;
-                    if (dist>LOD16_START) lod = 16;
-                    traversalChunks[x][y][z].buildID = lod; 
-                    voxelChunks[x][y][z].voxels = (uint8_t*)MemAlloc(32*32*32);
-                    voxelChunks[x][y][z].Clear();
-                    traversalChunks[x][y][z].Init(lod);
-                }
-            }
-        }
+    void GenerateTerrain() {
         uint8_t * noise = GenImagePerlinNoiseOptimized(
             WORLD_WIDTH,
             WORLD_DEPTH,
@@ -646,13 +627,13 @@ struct World {
                 }
             }
         }
-        std::cout<<"world gen\n";
-        BuildDistanceToClosestVoxel();
-        BuildDistanceLayerBaseline();
-        BuildDistanceLayer(8);
-        BuildDistanceLayer(4);
-        std::cout<<"layers gen\n";
-        int chunksWidthData = 0;
+        MemFree(noise);
+        MemFree(noiseXY);
+        MemFree(noiseXZ);
+        MemFree(noiseYZ);
+    }
+    void GenerateOccupancyMasks() {
+        
 #pragma omp parallel for collapse(3)
         for (int x = 0; x < WORLD_WIDTH/32; x++) {
             for (int y= 0 ; y < WORLD_HEIGHT/32; y++) {
@@ -668,11 +649,37 @@ struct World {
                         for (int i = 0; i < size*size*size; i++) {
                             voxelChunks[x][y][z].voxelLightValue[i] = 0;
                         }
-                        chunksWidthData+=1;
                     }
                 }
             }
         }
+    }
+    void Init(Vector3 cameraPosition) {
+        for (int x = 0; x < WORLD_WIDTH/32; x++) {
+            for (int y= 0 ; y < WORLD_HEIGHT/32; y++) {
+                for (int z = 0; z < WORLD_DEPTH/32; z++) {
+                    float dist = Vector3Distance(cameraPosition,{(float)x*32,(float)y*32,(float)z*32});
+                    int lod = 1;
+                    if (dist>LOD2_START) lod = 2;
+                    if (dist>LOD4_START) lod = 4;
+                    if (dist>LOD8_START) lod = 8;
+                    if (dist>LOD16_START) lod = 16;
+                    traversalChunks[x][y][z].buildID = lod; 
+                    voxelChunks[x][y][z].voxels = (uint8_t*)MemAlloc(32*32*32);
+                    voxelChunks[x][y][z].Clear();
+                    traversalChunks[x][y][z].Init(lod);
+                }
+            }
+        }
+        GenerateTerrain();
+        std::cout<<"world gen\n";
+        BuildDistanceToClosestVoxel();
+        BuildDistanceLayerBaseline();
+        BuildDistanceLayer(8);
+        BuildDistanceLayer(4);
+        std::cout<<"layers gen\n";
+        int chunksWidthData = 0;
+        GenerateOccupancyMasks();
         std::cout<<"occupancy gen\n";
         
         int id = 0;
@@ -725,10 +732,6 @@ struct World {
             }
         }
         std::cout<<"Total bytes: " << GetMemoryUsageBytes()<<"\n";
-        MemFree(noise);
-        MemFree(noiseXY);
-        MemFree(noiseXZ);
-        MemFree(noiseYZ);
         
     }
     uint64_t GetMemoryUsageBytes() const {
