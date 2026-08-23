@@ -80,11 +80,10 @@ class App {
         }
         worker = std::thread([=]() {
             world.Init(camera.position);
-           // worldFinished.store(true);
+            //worldFinished.store(true);
         });
         DisableCursor();
         
-        std::cout<<LOD2_START<<" "<<LOD4_START<<" "<<LOD8_START<<" "<<LOD16_START<<"\n";
     }
     void Run() {
         int frame = 0;
@@ -190,7 +189,7 @@ class App {
                                     STEP(chunk.distanceToClosestVoxel, 32.0f),
                                     STEP(chunk.distance16[IDX(lx >> 4,ly >> 4,lz >> 4,2)], 16.0f),
                                     STEP(chunk.distance8[IDX(lx >> 3,ly >> 3,lz >> 3,4)], 8.0f),
-                                    STEP(chunk.distance4[IDX(lx >> 2,ly >> 2,lz >> 2,8)], 4.0f)
+                                    STEP(chunk.GetDistance4(IDX(lx >> 2, ly >> 2, lz >> 2, 8)), 4.0f)
                                 });
                                 const float coneRadius = t * coneSlope + CONE_GUARD;
                                 const float remainingSafe = jump - coneRadius;
@@ -286,7 +285,7 @@ class App {
                                 STEP(chunk.distanceToClosestVoxel,  std::max(32,lod)),
                                 STEP(chunk.distance16[IDX(lx >> 4, ly >> 4, lz >> 4, 2)], std::max(16,lod)),
                                 STEP(chunk.distance8[IDX(lx >> 3, ly >> 3, lz >> 3, 4)],  std::max(8,lod)),
-                                STEP(chunk.distance4[IDX(lx >> 2, ly >> 2, lz >> 2, 8)],  std::max(4,lod))
+                                STEP(chunk.GetDistance4(IDX(lx >> 2, ly >> 2, lz >> 2, 8)),  std::max(4,lod))
                             });
                                                 
 
@@ -305,7 +304,7 @@ class App {
                                 else if (chunk.distance8[IDX(lx >> 3,ly >> 3,lz >> 3,4)] != 0 && lod<=8) {
                                     cellSize = 8;
                                 }
-                                else if (chunk.distance4[IDX(lx >> 2,ly >> 2,lz >> 2,8)] != 0 && lod<=4) {
+                                else if (chunk.GetDistance4(IDX(lx >> 2, ly >> 2, lz >> 2, 8))  != 0 && lod<=4) {
                                     cellSize = 4;
                                 }
 
@@ -446,7 +445,7 @@ class App {
                                     STEP(chunk.distanceToClosestVoxel,  std::max(32,lod)),
                                     STEP(chunk.distance16[IDX(lx >> 4, ly >> 4, lz >> 4, 2)], std::max(16,lod)),
                                     STEP(chunk.distance8[IDX(lx >> 3, ly >> 3, lz >> 3, 4)],  std::max(8,lod)),
-                                    STEP(chunk.distance4[IDX(lx >> 2, ly >> 2, lz >> 2, 8)],  std::max(4,lod))
+                                    STEP(chunk.GetDistance4(IDX(lx >> 2, ly >> 2, lz >> 2, 8)),  std::max(4,lod))
                                 });
                                 
                                 if (jump > 0.0f) {

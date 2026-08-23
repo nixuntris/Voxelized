@@ -228,10 +228,10 @@ struct TraversalChunk {
                 }
                 else if (biggest - smallest < 4) {
 
-                    QuantizeDistance4(smallest, 1);
+                    QuantizeDistance4(smallest, 2);
                 }
                 else if (biggest - smallest < 16) {
-                    QuantizeDistance4(smallest, 1);
+                    QuantizeDistance4(smallest, 4);
                 }
             }
         }
