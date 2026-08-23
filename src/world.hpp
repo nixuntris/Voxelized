@@ -152,7 +152,8 @@ struct TraversalChunk {
     uint8_t *distance4 = nullptr; //size 8
     uint8_t buildID = 0;
     uint8_t only;
-    bool quantized = false;
+    uint8_t quantized = 0;
+    uint8_t distance4Bits = 0;
     void Init(int cellSize) {
         
         distance16 = (uint8_t*)MemAlloc(2*2*2);
@@ -167,8 +168,35 @@ struct TraversalChunk {
         }
             
     }
+     void QuantizeDistance4(uint8_t smallest, uint8_t bits) {
+        const int valueCount = 512;
+        const int packedSize = (valueCount * bits + 7) / 8;
+
+        uint8_t* packed = (uint8_t*)MemAlloc(packedSize);
+        memset(packed, 0, packedSize);
+
+        const uint8_t mask = (1u << bits) - 1u;
+
+        for (int i = 0; i < valueCount; ++i) {
+            uint8_t delta = distance4[i] - smallest;
+            delta &= mask;
+
+            const int bitIndex  = i * bits;
+            const int byteIndex = bitIndex >> 3;
+            const int bitOffset = bitIndex & 7;
+
+            packed[byteIndex] |= delta << bitOffset;
+        }
+
+        MemFree(distance4);
+        distance4 = packed;
+        quantized = smallest;
+        distance4Bits = bits;
+    }
     bool CheckDelta(int cellSize) {
         
+        int smallest = 255;
+        int biggest = 0;
         bool only255= true;
         bool onl0 = true;
 
@@ -186,27 +214,51 @@ struct TraversalChunk {
             if (only255 ) {
                 only = 255;
                 free(distance4);
+                distance4 = nullptr;
             }
             else if (onl0) {
                 only = 0;
                 free(distance4);
+                distance4 = nullptr;
             }
             if (smallest != 255 && biggest != 0) {
 
                 if (biggest - smallest < 2) {
-                    
+                    QuantizeDistance4(smallest, 1);
                 }
                 else if (biggest - smallest < 4) {
-                
+
+                    QuantizeDistance4(smallest, 1);
                 }
                 else if (biggest - smallest < 16) {
-                
+                    QuantizeDistance4(smallest, 1);
                 }
             }
         }
 
     return true;
 }
+    //for reference in the traversal optimizations rather than actual usage
+    inline uint8_t GetDistance4(int index) const {
+        if (distance4 == nullptr) {
+            return only;
+        }
+        if (distance4Bits == 0) {
+            return distance4[index];
+        }
+
+        const int bitIndex  = index * distance4Bits;
+        const int byteIndex = bitIndex >> 3;
+        const int bitOffset = bitIndex & 7;
+
+        const uint8_t mask =
+            (1u << distance4Bits) - 1u;
+
+        const uint8_t delta =
+            (distance4[byteIndex] >> bitOffset) & mask;
+
+        return quantized + delta;
+    }
     void BuildOccupancyMask(uint8_t *voxels) {
         occupancy = (uint64_t*)MemAlloc(512*sizeof(uint64_t));
         for (int i = 0; i < 512; i++) occupancy[i] = 0;
@@ -730,53 +782,88 @@ struct World {
         
     }
     uint64_t GetMemoryUsageBytes() const {
+    // sizeof(World) accounts for the two fixed chunk arrays and all
+    // scalar/pointer members stored directly inside them.
     uint64_t total = sizeof(World);
+
+    // Heap allocations can be shared/deduplicated, so only count each
+    // allocation once.
     std::unordered_set<const void*> counted;
 
-    auto add = [&](const void* ptr, uint64_t bytes) {
-        if (ptr && counted.insert(ptr).second)
+    const auto addAllocation = [&](const void* ptr, uint64_t bytes) {
+        if (ptr != nullptr && counted.insert(ptr).second) {
             total += bytes;
+        }
     };
 
-    for (int x = 0; x < WORLD_WIDTH / 32; ++x) {
-        for (int y = 0; y < WORLD_HEIGHT / 32; ++y) {
-            for (int z = 0; z < WORLD_DEPTH / 32; ++z) {
+    constexpr int CHUNK_COUNT_X = WORLD_WIDTH  / 32;
+    constexpr int CHUNK_COUNT_Y = WORLD_HEIGHT / 32;
+    constexpr int CHUNK_COUNT_Z = WORLD_DEPTH  / 32;
+
+    for (int x = 0; x < CHUNK_COUNT_X; ++x) {
+        for (int y = 0; y < CHUNK_COUNT_Y; ++y) {
+            for (int z = 0; z < CHUNK_COUNT_Z; ++z) {
+
                 const VoxelChunk& v = voxelChunks[x][y][z];
                 const TraversalChunk& t = traversalChunks[x][y][z];
+                if (v.voxels != nullptr) {
+                    const uint64_t voxelBytes =
+                        uint64_t(v.size) *
+                        uint64_t(v.size) *
+                        uint64_t(v.size);
 
-                if (v.voxels)
-                    add(v.voxels, uint64_t(v.size) * v.size * v.size);
+                    addAllocation(v.voxels, voxelBytes);
+                }
+                if (v.containsBlocks && t.buildID != 0) {
+                    const uint64_t lightSide = 32u / t.buildID;
 
-                if (v.voxelLightValueR)
-                    add(v.voxelLightValueR,
-                        uint64_t(v.size) * v.size * v.size);
+                    const uint64_t lightBytes =
+                        lightSide *
+                        lightSide *
+                        lightSide;
 
-                if (v.voxelLightValueG)
-                    add(v.voxelLightValueG,
-                        uint64_t(v.size) * v.size * v.size);
+                    addAllocation(v.voxelLightValueR, lightBytes);
+                    addAllocation(v.voxelLightValueG, lightBytes);
+                    addAllocation(v.voxelLightValueB, lightBytes);
+                }
+                addAllocation(
+                    t.occupancy,
+                    512ull * sizeof(uint64_t)
+                );
 
-                if (v.voxelLightValueB)
-                    add(v.voxelLightValueB,
-                        uint64_t(v.size) * v.size * v.size);
+                addAllocation(
+                    t.distance16,
+                    2ull * 2ull * 2ull
+                );
+                addAllocation(
+                    t.distance8,
+                    4ull * 4ull * 4ull
+                );
+                if (t.distance4 != nullptr) {
+                    uint64_t distance4Bytes;
 
-                if (t.occupancy)
-                    add(t.occupancy, 512ull * sizeof(uint64_t));
+                    if (t.distance4Bits == 0) {
+                        distance4Bytes = 512ull;
+                    }
+                    else {
+                        distance4Bytes =
+                            (512ull * uint64_t(t.distance4Bits) + 7ull) / 8ull;
+                    }
 
-                if (t.distance16)
-                    add(t.distance16, 2ull * 2 * 2);
-
-                if (t.distance8)
-                    add(t.distance8, 4ull * 4 * 4);
-
-                if (t.distance4)
-                    add(t.distance4, 8ull * 8 * 8);
-
-                if (v.remap)
-                    add(v.remap, 256);
+                    addAllocation(
+                        t.distance4,
+                        distance4Bytes
+                    );
+                }
+                addAllocation(
+                    v.remap,
+                    256ull
+                );
             }
         }
     }
 
     return total;
 }
+
 };

@@ -80,7 +80,7 @@ class App {
         }
         worker = std::thread([=]() {
             world.Init(camera.position);
-            worldFinished.store(true);
+           // worldFinished.store(true);
         });
         DisableCursor();
         
@@ -281,14 +281,12 @@ class App {
                             int ix = (int)voxelX, iy = (int)voxelY, iz = (int)voxelZ;
                             TraversalChunk &chunk = world.traversalChunks[ix >> 5][iy >> 5][iz >> 5];
                             int lx = ix & 31, ly = iy & 31, lz = iz & 31;
-                            float d4Jump = 0; 
-                            if (chunk.only==0 || chunk.only==255) d4Jump = chunk.only;
-                            else d4Jump = STEP(chunk.distance4[IDX(lx >> 2, ly >> 2, lz >> 2, 8)],  std::max(4,lod));
+                            
                             float jump = std::max({
                                 STEP(chunk.distanceToClosestVoxel,  std::max(32,lod)),
                                 STEP(chunk.distance16[IDX(lx >> 4, ly >> 4, lz >> 4, 2)], std::max(16,lod)),
                                 STEP(chunk.distance8[IDX(lx >> 3, ly >> 3, lz >> 3, 4)],  std::max(8,lod)),
-                                d4Jump
+                                STEP(chunk.distance4[IDX(lx >> 2, ly >> 2, lz >> 2, 8)],  std::max(4,lod))
                             });
                                                 
 
@@ -307,7 +305,7 @@ class App {
                                 else if (chunk.distance8[IDX(lx >> 3,ly >> 3,lz >> 3,4)] != 0 && lod<=8) {
                                     cellSize = 8;
                                 }
-                                else if (chunk.distance4[IDX(lx >> 2,ly >> 2,lz >> 2,8)] != 0 && lod<=4 && chunk.only!=3) {
+                                else if (chunk.distance4[IDX(lx >> 2,ly >> 2,lz >> 2,8)] != 0 && lod<=4) {
                                     cellSize = 4;
                                 }
 
@@ -444,14 +442,11 @@ class App {
                                 else if (shadowT > LOD2_START) lod = 2;
                                 else shadowT = 1;
                                 TraversalChunk& chunk = world.traversalChunks[cx][cy][cz];
-                                float d4Jump = 0; 
-                                if (chunk.only==0 || chunk.only==255) d4Jump = chunk.only;
-                                else d4Jump = STEP(chunk.distance4[IDX(lx >> 2, ly >> 2, lz >> 2, 8)],  std::max(4,lod));
                                 float jump = std::max({
                                     STEP(chunk.distanceToClosestVoxel,  std::max(32,lod)),
                                     STEP(chunk.distance16[IDX(lx >> 4, ly >> 4, lz >> 4, 2)], std::max(16,lod)),
                                     STEP(chunk.distance8[IDX(lx >> 3, ly >> 3, lz >> 3, 4)],  std::max(8,lod)),
-                                    d4Jump
+                                    STEP(chunk.distance4[IDX(lx >> 2, ly >> 2, lz >> 2, 8)],  std::max(4,lod))
                                 });
                                 
                                 if (jump > 0.0f) {
