@@ -20,7 +20,7 @@ auto ms = [](auto start, auto end) {
 };
 
 Vector3 sunDirection = Vector3Normalize((Vector3){ 0.8f, 0.2f, 0.2f });
-
+Color SKYCOLOR = SKYBLUE;
 float sunDirSX = copysignf(1.0f, sunDirection.x);
 float sunDirSY = copysignf(1.0f, sunDirection.y);
 float sunDirSZ = copysignf(1.0f, sunDirection.z);
@@ -52,7 +52,7 @@ class App {
     Texture displayBuffer;
     Vector3 *directionStorage;
     World world;
-    Hit hits[width][height];
+    Hit hits[width*height];
     int *stepStorage;
     int *oldStep;
     float *oldDistance;
@@ -223,10 +223,10 @@ class App {
                         int pixelIndex = x + y * width;
 
                         if ((x + y + frame) % 2 == 0) continue;
-                        hits[x][y].viable = false;
-                        ((unsigned char *)imageBuffer.data)[idx] = SKYBLUE.r;
-                        ((unsigned char *)imageBuffer.data)[idx + 1] = SKYBLUE.g;
-                        ((unsigned char *)imageBuffer.data)[idx + 2] = SKYBLUE.b;
+                        hits[pixelIndex].viable = false;
+                        ((unsigned char *)imageBuffer.data)[idx] = SKYCOLOR.r;
+                        ((unsigned char *)imageBuffer.data)[idx + 1] = SKYCOLOR.g;
+                        ((unsigned char *)imageBuffer.data)[idx + 2] = SKYCOLOR.b;
 
                         Vector3 direction = directionStorage[pixelIndex];
                         float t = oldDistance[pixelIndex];
@@ -266,11 +266,11 @@ class App {
                                         
                                     }
                                     else type = world.voxelChunks[cx][cy][cz].palletized;
-                                    hits[x][y].viable = true;
-                                    hits[x][y].type = type;
-                                    hits[x][y].x = voxelX;
-                                    hits[x][y].y = voxelY;
-                                    hits[x][y].z = voxelZ;
+                                    hits[pixelIndex].viable = true;
+                                    hits[pixelIndex].type = type;
+                                    hits[pixelIndex].x = voxelX;
+                                    hits[pixelIndex].y = voxelY;
+                                    hits[pixelIndex].z = voxelZ;
                                     
                                     break;
                                     
@@ -334,31 +334,39 @@ class App {
                 #pragma omp parallel for collapse(2)
                 for (int x = 0; x < width; x++) {
                     for (int y = 0; y < width; y++) {
+                        int pixelIndex = y * imageBuffer.width + x;
                         int idx = (y * imageBuffer.width + x) * 3;
-                        if (!hits[x][y].viable) continue;
-                        uint8_t type = hits[x][y].type;
+                        if (!hits[pixelIndex].viable) continue;
+                        uint8_t type = hits[y * imageBuffer.width + x].type;
+                        float strengthR = 1.0f+SKYCOLOR.r*0.18;
+                        float strengthG = 1.0f+SKYCOLOR.g*0.18;
+                        float strengthB = 1.0f+SKYCOLOR.b*0.18;
                         
-                        float strength = 1.0f;
-                        float shadowT = 0.0f;
+                        int origVoxelX = (int)hits[pixelIndex].x;
+                        int origVoxelY = (int)hits[pixelIndex].y;
+                        int origVoxelZ = (int)hits[pixelIndex].z;
+                        int dx = origVoxelX >> 5;
+                        int dy = origVoxelY >> 5;
+                        int dz = origVoxelZ >> 5;
                         
-                        float shadowX = hits[x][y].x;
-                        float shadowY = hits[x][y].y;
-                        float shadowZ = hits[x][y].z;
-                        
-                        int origVoxelX = (int)shadowX;
-                        int origVoxelY = (int)shadowY;
-                        int origVoxelZ = (int)shadowZ;
+                        int origLod = world.voxelChunks[dx][dy][dz].lod;
+                        int origSize = world.voxelChunks[dx][dy][dz].size;
+                        int id = IDX((origVoxelX % 32) / origLod, (origVoxelY % 32) / origLod, (origVoxelZ % 32) / origLod, origSize);
+                        uint8_t lightValR = world.voxelChunks[dx][dy][dz].voxelLightValueR[id];
+                        uint8_t lightValG = world.voxelChunks[dx][dy][dz].voxelLightValueG[id];
+                        uint8_t lightValB = world.voxelChunks[dx][dy][dz].voxelLightValueB[id];
 
-                        int origLod = world.voxelChunks[origVoxelX >> 5][origVoxelY >> 5][origVoxelZ >> 5].lod;
-                        int origSize = world.voxelChunks[origVoxelX >> 5][origVoxelY >> 5][origVoxelZ >> 5].size;
-                        uint8_t lightVal = world.voxelChunks[origVoxelX >> 5][origVoxelY >> 5][origVoxelZ >> 5]
-                            .voxelLightValue[IDX((origVoxelX % 32) / origLod, (origVoxelY % 32) / origLod, (origVoxelZ % 32) / origLod, origSize)];
-
-                        if (lightVal != 0) {
-                            if (lightVal != 1) {
-                                strength = float(lightVal - 1) / 253.0f;
+                        if (lightValR != 0) {
+                            if (lightValR != 1) {
+                                strengthR = float(lightValR - 1) / 253.0f;
+                                strengthG = float(lightValG - 1) / 253.0f;
+                                strengthB = float(lightValB - 1) / 253.0f;
                             }
                         } else {
+                            float shadowT = 0.0f;
+                            float shadowX = hits[pixelIndex].x;
+                            float shadowY = hits[pixelIndex].y;
+                            float shadowZ = hits[pixelIndex].z;
                             shadowX += sunDirection.x * 1.5f;
                             shadowY += sunDirection.y * 1.5f;
                             shadowZ += sunDirection.z * 1.5f;
@@ -367,9 +375,19 @@ class App {
                             while (shadowT < 256.0f) {
                                 if (shadowX < 0.0f || shadowY < 0.0f || shadowZ < 0.0f ||
                                     shadowX >= WORLD_WIDTH || shadowY >= WORLD_HEIGHT || shadowZ >= WORLD_DEPTH) {
-                                    strength = 1.0f;
-                                    world.voxelChunks[origVoxelX >> 5][origVoxelY >> 5][origVoxelZ >> 5]
-                                        .voxelLightValue[IDX((origVoxelX % 32) / origLod, (origVoxelY % 32) / origLod, (origVoxelZ % 32) / origLod, origSize)] = 255;
+                                    strengthR = 1.0f;
+                                    strengthG = 1.0f;
+                                    strengthB = 1.0f;
+                                    int dx = origVoxelX>>5;
+                                    int dy = origVoxelY>>5;
+                                    int dz = origVoxelZ>>5;
+                                    int id = IDX((origVoxelX % 32) / origLod, (origVoxelY % 32) / origLod, (origVoxelZ % 32) / origLod, origSize);
+                                    world.voxelChunks[dx][dy][dz]
+                                        .voxelLightValueR[id] = 255;
+                                    world.voxelChunks[dx][dy][dz]
+                                        .voxelLightValueG[id] = 255;
+                                    world.voxelChunks[dx][dy][dz]
+                                        .voxelLightValueB[id] = 255;
                                     
                                     break;
                                 }
@@ -394,13 +412,25 @@ class App {
                                         }
                                         else typer = world.voxelChunks[cx][cy][cz].palletized;
                                         if (voxelMetaData[typer].translucent) {
-                                            strength *= voxelMetaData[typer].lightAbsorb; 
+                                            strengthR *= voxelMetaData[typer].lightAbsorbR; 
+                                            strengthG *= voxelMetaData[typer].lightAbsorbG; 
+                                            strengthB *= voxelMetaData[typer].lightAbsorbB; 
                                         }
                                         else {
-                                            strength *= voxelMetaData[typer].lightAbsorb;
-                                            uint8_t cachedVal = (uint8_t)((strength * 253.0f) + 1);
-                                            world.voxelChunks[origVoxelX >> 5][origVoxelY >> 5][origVoxelZ >> 5]
-                                                .voxelLightValue[IDX((origVoxelX % 32) / origLod, (origVoxelY % 32) / origLod, (origVoxelZ % 32) / origLod, origSize)] = cachedVal;
+                                            strengthR *= voxelMetaData[typer].lightAbsorbR;
+                                            strengthG *= voxelMetaData[typer].lightAbsorbG;
+                                            strengthB *= voxelMetaData[typer].lightAbsorbB;
+                                            uint8_t cachedValR = (uint8_t)((strengthR * 253.0f) + 1);
+                                            uint8_t cachedValG = (uint8_t)((strengthG * 253.0f) + 1);
+                                            uint8_t cachedValB = (uint8_t)((strengthB * 253.0f) + 1);
+                                            int dx = origVoxelX>>5;
+                                            int dy = origVoxelY>>5;
+                                            int dz = origVoxelZ>>5;
+                                            int id = IDX((origVoxelX % 32) / origLod, (origVoxelY % 32) / origLod, (origVoxelZ % 32) / origLod, origSize);
+                                            world.voxelChunks[dx][dy][dz].voxelLightValueR[id] = cachedValR;
+                                            world.voxelChunks[dx][dy][dz].voxelLightValueG[id] = cachedValG;
+                                            world.voxelChunks[dx][dy][dz].voxelLightValueB[id] = cachedValB;
+
                                             break;    
                                         }
                                         
@@ -458,9 +488,9 @@ class App {
                             //TBD
                         }
 
-                        ((unsigned char *)imageBuffer.data)[idx] = colors[type].r * strength;
-                        ((unsigned char *)imageBuffer.data)[idx + 1] = colors[type].g * strength;
-                        ((unsigned char *)imageBuffer.data)[idx + 2] = colors[type].b * strength;
+                        ((unsigned char *)imageBuffer.data)[idx] = colors[type].r * strengthR;
+                        ((unsigned char *)imageBuffer.data)[idx + 1] = colors[type].g * strengthG;
+                        ((unsigned char *)imageBuffer.data)[idx + 2] = colors[type].b * strengthB;
                     }
                 }
                 auto lightEnd = Clock::now();

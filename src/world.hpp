@@ -22,42 +22,34 @@ enum VoxelTypes {
 };
 struct VoxelData {
     std::string name;
-    float lightAbsorb;
+    float lightAbsorbR;
+    float lightAbsorbG;
+    float lightAbsorbB;
     bool translucent;
     bool reflective;
 
 };
+
 const VoxelData voxelMetaData[10] = {
-    {
-        "air", 0.0f, false, false
-    },
-    {
-        "grass", 0.9f, true, false
-    },
-    {
-        "grass_variant", 0.9f, true, false
-    },
-    {
-        "tree_bark", 0.8f, false, false
-    },
-    {
-        "leaf", 0.9f, false, false
-    },
-    {
-        "stone", 0.3f, false, false
-    },
-    {
-        "sand", 0.7f, false, false
-    },
-    {
-        "water", 0.0f, false, false
-    },
-    {
-        "", 0.0f, false, false
-    },
-    {
-        "", 0.0f, false, false
-    }
+    { "air",            1.000f, 1.000f, 1.000f, true,  false },
+
+    { "grass",          0.970f, 0.985f, 0.965f, true,  false },
+
+    { "grass_variant",  0.965f, 0.982f, 0.960f, true,  false },
+
+    { "tree_bark",      0.120f, 0.090f, 0.060f, false, false },
+
+    { "leaf",           0.930f, 0.975f, 0.920f, true,  false },
+
+    { "stone",          0.180f, 0.190f, 0.210f, false, false },
+
+    { "sand",           0.320f, 0.290f, 0.210f, false, false },
+
+    { "water",          0.992f, 0.996f, 0.999f, true,  true },
+
+    { "",               0.000f, 0.000f, 0.000f, false, false },
+
+    { "",               0.000f, 0.000f, 0.000f, false, false }
 };
 const float FOVY = 120.0f;
 const float SCALE = 1;
@@ -75,7 +67,9 @@ const int WORLD_HEIGHT = 512;
 const int RENDERDISTANCE = 2048;
 struct VoxelChunk {
     uint8_t *voxels;
-    uint8_t *voxelLightValue;
+    uint8_t *voxelLightValueR;
+    uint8_t *voxelLightValueG;
+    uint8_t *voxelLightValueB;
     bool containsBlocks;
     int palletized = 0;
     uint8_t *remap;
@@ -175,8 +169,6 @@ struct TraversalChunk {
     }
     bool CheckDelta(int cellSize) {
         
-        int smallest = 255;
-        int biggest = 0;
         bool only255= true;
         bool onl0 = true;
 
@@ -645,9 +637,13 @@ struct World {
                     else {
                         traversalChunks[x][y][z].BuildOccupancyMask(voxelChunks[x][y][z].voxels);
                         int size = 32/traversalChunks[x][y][z].buildID;
-                        voxelChunks[x][y][z].voxelLightValue = (uint8_t*)MemAlloc(size*size*size); 
+                        voxelChunks[x][y][z].voxelLightValueR = (uint8_t*)MemAlloc(size*size*size); 
+                        voxelChunks[x][y][z].voxelLightValueG = (uint8_t*)MemAlloc(size*size*size); 
+                        voxelChunks[x][y][z].voxelLightValueB = (uint8_t*)MemAlloc(size*size*size); 
                         for (int i = 0; i < size*size*size; i++) {
-                            voxelChunks[x][y][z].voxelLightValue[i] = 0;
+                            voxelChunks[x][y][z].voxelLightValueR[i] = 0;
+                            voxelChunks[x][y][z].voxelLightValueG[i] = 0;
+                            voxelChunks[x][y][z].voxelLightValueB[i] = 0;
                         }
                     }
                 }
@@ -678,7 +674,6 @@ struct World {
         BuildDistanceLayer(8);
         BuildDistanceLayer(4);
         std::cout<<"layers gen\n";
-        int chunksWidthData = 0;
         GenerateOccupancyMasks();
         std::cout<<"occupancy gen\n";
         
@@ -752,8 +747,16 @@ struct World {
                 if (v.voxels)
                     add(v.voxels, uint64_t(v.size) * v.size * v.size);
 
-                if (v.voxelLightValue)
-                    add(v.voxelLightValue,
+                if (v.voxelLightValueR)
+                    add(v.voxelLightValueR,
+                        uint64_t(v.size) * v.size * v.size);
+
+                if (v.voxelLightValueG)
+                    add(v.voxelLightValueG,
+                        uint64_t(v.size) * v.size * v.size);
+
+                if (v.voxelLightValueB)
+                    add(v.voxelLightValueB,
                         uint64_t(v.size) * v.size * v.size);
 
                 if (t.occupancy)

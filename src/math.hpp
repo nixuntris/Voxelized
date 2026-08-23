@@ -27,6 +27,7 @@
                                                                   \
     _min + (int)(_r % _range);                                   \
 })
+#define RAND01(s) (((s = s * 1664525u + 1013904223u) >> 8) * (1.0f / 16777215.0f))
 #define IDX(x, y, z, size) \
     ((int)(x) * (int)(size) * (int)(size) + \
      (int)(y) * (int)(size) + (int)(z)) 
