@@ -80,7 +80,7 @@ class App {
         }
         worker = std::thread([=]() {
             world.Init(camera.position);
-            //worldFinished.store(true);
+            worldFinished.store(true);
         });
         DisableCursor();
         
@@ -349,6 +349,18 @@ class App {
                         int origLod = world.voxelChunks[dx][dy][dz].lod;
                         int origSize = world.voxelChunks[dx][dy][dz].size;
                         int id = IDX((origVoxelX % 32) / origLod, (origVoxelY % 32) / origLod, (origVoxelZ % 32) / origLod, origSize);
+                        if (!world.voxelChunks[dx][dy][dz].containsLight) {
+                            int size = 32/world.traversalChunks[dx][dy][dz].buildID;
+                            world.voxelChunks[dx][dy][dz].voxelLightValueR = (uint8_t*)MemAlloc(size*size*size); 
+                            world.voxelChunks[dx][dy][dz].voxelLightValueG = (uint8_t*)MemAlloc(size*size*size); 
+                            world.voxelChunks[dx][dy][dz].voxelLightValueB = (uint8_t*)MemAlloc(size*size*size); 
+                            for (int i = 0; i < size*size*size; i++) {
+                                world.voxelChunks[dx][dy][dz].voxelLightValueR[i] = 0;
+                                world.voxelChunks[dx][dy][dz].voxelLightValueG[i] = 0;
+                                world.voxelChunks[dx][dy][dz].voxelLightValueB[i] = 0;
+                            }
+                            world.voxelChunks[dx][dy][dz].containsLight = true;
+                        }
                         uint8_t lightValR = world.voxelChunks[dx][dy][dz].voxelLightValueR[id];
                         uint8_t lightValG = world.voxelChunks[dx][dy][dz].voxelLightValueG[id];
                         uint8_t lightValB = world.voxelChunks[dx][dy][dz].voxelLightValueB[id];

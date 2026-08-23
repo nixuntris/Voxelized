@@ -61,8 +61,8 @@ const float LOD4_START  = 4.0f  / PIXEL_WORLD_SLOPE;
 const float LOD8_START  = 8.0f  / PIXEL_WORLD_SLOPE;
 const float LOD16_START = 16.0f / PIXEL_WORLD_SLOPE;
 
-const int WORLD_WIDTH = 512;
-const int WORLD_DEPTH = 512;
+const int WORLD_WIDTH = 2048;
+const int WORLD_DEPTH = 2048;
 const int WORLD_HEIGHT = 512;
 const int RENDERDISTANCE = 2048;
 struct VoxelChunk {
@@ -70,6 +70,7 @@ struct VoxelChunk {
     uint8_t *voxelLightValueR;
     uint8_t *voxelLightValueG;
     uint8_t *voxelLightValueB;
+    bool containsLight=false;
     bool containsBlocks;
     int palletized = 0;
     uint8_t *remap;
@@ -688,15 +689,15 @@ struct World {
                     }
                     else {
                         traversalChunks[x][y][z].BuildOccupancyMask(voxelChunks[x][y][z].voxels);
-                        int size = 32/traversalChunks[x][y][z].buildID;
-                        voxelChunks[x][y][z].voxelLightValueR = (uint8_t*)MemAlloc(size*size*size); 
-                        voxelChunks[x][y][z].voxelLightValueG = (uint8_t*)MemAlloc(size*size*size); 
-                        voxelChunks[x][y][z].voxelLightValueB = (uint8_t*)MemAlloc(size*size*size); 
-                        for (int i = 0; i < size*size*size; i++) {
-                            voxelChunks[x][y][z].voxelLightValueR[i] = 0;
-                            voxelChunks[x][y][z].voxelLightValueG[i] = 0;
-                            voxelChunks[x][y][z].voxelLightValueB[i] = 0;
-                        }
+                        //int size = 32/traversalChunks[x][y][z].buildID;
+                        //voxelChunks[x][y][z].voxelLightValueR = (uint8_t*)MemAlloc(size*size*size); 
+                        //voxelChunks[x][y][z].voxelLightValueG = (uint8_t*)MemAlloc(size*size*size); 
+                        //voxelChunks[x][y][z].voxelLightValueB = (uint8_t*)MemAlloc(size*size*size); 
+                        //for (int i = 0; i < size*size*size; i++) {
+                        //    voxelChunks[x][y][z].voxelLightValueR[i] = 0;
+                        //    voxelChunks[x][y][z].voxelLightValueG[i] = 0;
+                        //    voxelChunks[x][y][z].voxelLightValueB[i] = 0;
+                        //}
                     }
                 }
             }
@@ -778,92 +779,197 @@ struct World {
                 }
             }
         }
-        std::cout<<"Total bytes: " << GetMemoryUsageBytes()<<"\n";
+        GetMemoryUsageBytes();
         
     }
     uint64_t GetMemoryUsageBytes() const {
-    // sizeof(World) accounts for the two fixed chunk arrays and all
-    // scalar/pointer members stored directly inside them.
-    uint64_t total = sizeof(World);
 
-    // Heap allocations can be shared/deduplicated, so only count each
-    // allocation once.
-    std::unordered_set<const void*> counted;
+        uint64_t total = sizeof(World);
+        uint64_t worldStructBytes = sizeof(World);
 
-    const auto addAllocation = [&](const void* ptr, uint64_t bytes) {
-        if (ptr != nullptr && counted.insert(ptr).second) {
-            total += bytes;
-        }
-    };
+        uint64_t voxelBytesTotal = 0;
 
-    constexpr int CHUNK_COUNT_X = WORLD_WIDTH  / 32;
-    constexpr int CHUNK_COUNT_Y = WORLD_HEIGHT / 32;
-    constexpr int CHUNK_COUNT_Z = WORLD_DEPTH  / 32;
+        uint64_t lightRBytesTotal = 0;
+        uint64_t lightGBytesTotal = 0;
+        uint64_t lightBBytesTotal = 0;
 
-    for (int x = 0; x < CHUNK_COUNT_X; ++x) {
-        for (int y = 0; y < CHUNK_COUNT_Y; ++y) {
-            for (int z = 0; z < CHUNK_COUNT_Z; ++z) {
+        uint64_t occupancyBytesTotal = 0;
 
-                const VoxelChunk& v = voxelChunks[x][y][z];
-                const TraversalChunk& t = traversalChunks[x][y][z];
-                if (v.voxels != nullptr) {
-                    const uint64_t voxelBytes =
-                        uint64_t(v.size) *
-                        uint64_t(v.size) *
-                        uint64_t(v.size);
+        uint64_t distance16BytesTotal = 0;
+        uint64_t distance8BytesTotal  = 0;
+        uint64_t distance4BytesTotal  = 0;
 
-                    addAllocation(v.voxels, voxelBytes);
-                }
-                if (v.containsBlocks && t.buildID != 0) {
-                    const uint64_t lightSide = 32u / t.buildID;
+        uint64_t distance4RawBytes = 0;
+        uint64_t distance4QuantizedBytes = 0;
 
-                    const uint64_t lightBytes =
-                        lightSide *
-                        lightSide *
-                        lightSide;
+        uint64_t remapBytesTotal = 0;
 
-                    addAllocation(v.voxelLightValueR, lightBytes);
-                    addAllocation(v.voxelLightValueG, lightBytes);
-                    addAllocation(v.voxelLightValueB, lightBytes);
-                }
-                addAllocation(
-                    t.occupancy,
-                    512ull * sizeof(uint64_t)
-                );
+        uint64_t voxelAllocations = 0;
+        uint64_t lightAllocations = 0;
+        uint64_t occupancyAllocations = 0;
+        uint64_t distance16Allocations = 0;
+        uint64_t distance8Allocations = 0;
+        uint64_t distance4RawAllocations = 0;
+        uint64_t distance4QuantizedAllocations = 0;
+        uint64_t remapAllocations = 0;
 
-                addAllocation(
-                    t.distance16,
-                    2ull * 2ull * 2ull
-                );
-                addAllocation(
-                    t.distance8,
-                    4ull * 4ull * 4ull
-                );
-                if (t.distance4 != nullptr) {
-                    uint64_t distance4Bytes;
+        std::unordered_set<const void*> counted;
 
-                    if (t.distance4Bits == 0) {
-                        distance4Bytes = 512ull;
+        const auto addAllocation = [&](
+            const void* ptr,
+            uint64_t bytes,
+            uint64_t& categoryBytes,
+            uint64_t& allocationCount
+        ) {
+            if (ptr != nullptr && counted.insert(ptr).second) {
+                total += bytes;
+                categoryBytes += bytes;
+                allocationCount++;
+            }
+        };
+
+        constexpr int CHUNK_COUNT_X = WORLD_WIDTH  / 32;
+        constexpr int CHUNK_COUNT_Y = WORLD_HEIGHT / 32;
+        constexpr int CHUNK_COUNT_Z = WORLD_DEPTH  / 32;
+
+        constexpr uint64_t CHUNK_COUNT = uint64_t(CHUNK_COUNT_X) * uint64_t(CHUNK_COUNT_Y) * uint64_t(CHUNK_COUNT_Z);
+
+        for (int x = 0; x < CHUNK_COUNT_X; ++x) {
+            for (int y = 0; y < CHUNK_COUNT_Y; ++y) {
+                for (int z = 0; z < CHUNK_COUNT_Z; ++z) {
+
+                    const VoxelChunk& v = voxelChunks[x][y][z];
+                    const TraversalChunk& t = traversalChunks[x][y][z];
+
+                     if (v.voxels != nullptr) {
+                        const uint64_t bytes = uint64_t(v.size) * uint64_t(v.size) * uint64_t(v.size);
+
+                        addAllocation(v.voxels,bytes,voxelBytesTotal,voxelAllocations);
                     }
-                    else {
-                        distance4Bytes =
-                            (512ull * uint64_t(t.distance4Bits) + 7ull) / 8ull;
+                     if (v.containsBlocks && t.buildID != 0) {
+
+                        const uint64_t lightSide = 32u / t.buildID;
+
+                        const uint64_t lightBytes =lightSide *lightSide *lightSide;
+
+                        addAllocation(v.voxelLightValueR,lightBytes,lightRBytesTotal,lightAllocations);
+
+                        addAllocation(v.voxelLightValueG,lightBytes,lightGBytesTotal,lightAllocations);
+
+                        addAllocation(v.voxelLightValueB,lightBytes,lightBBytesTotal,lightAllocations);
                     }
 
-                    addAllocation(
-                        t.distance4,
-                        distance4Bytes
-                    );
+                    addAllocation(t.occupancy,512ull * sizeof(uint64_t),occupancyBytesTotal,occupancyAllocations);
+                    addAllocation(t.distance16,2ull * 2ull * 2ull,distance16BytesTotal,distance16Allocations);
+
+                    addAllocation(t.distance8,4ull * 4ull * 4ull,distance8BytesTotal,distance8Allocations);
+                    if (t.distance4 != nullptr) {
+
+                        uint64_t distance4Bytes;
+
+                        if (t.distance4Bits == 0) {
+
+                            distance4Bytes = 512ull;
+
+                            addAllocation(t.distance4,distance4Bytes,distance4RawBytes,distance4RawAllocations);
+
+                        } else {
+
+                            distance4Bytes = (    512ull *    uint64_t(t.distance4Bits) +    7ull) / 8ull;
+
+                            addAllocation(t.distance4,distance4Bytes,distance4QuantizedBytes,distance4QuantizedAllocations);
+                        }
+                    }
+                    addAllocation(v.remap,256ull,remapBytesTotal,remapAllocations);
                 }
-                addAllocation(
-                    v.remap,
-                    256ull
-                );
             }
         }
+
+        distance4BytesTotal = distance4RawBytes + distance4QuantizedBytes;
+
+        const uint64_t lightBytesTotal = lightRBytesTotal +lightGBytesTotal +lightBBytesTotal;
+
+        const uint64_t distanceBytesTotal = distance16BytesTotal + distance8BytesTotal + distance4BytesTotal;
+
+        auto mib = [](uint64_t bytes) {
+            return double(bytes) / (1024.0 * 1024.0);
+        };
+
+        auto percent = [&](uint64_t bytes) {
+            if (total == 0)
+                return 0.0;
+
+            return (double(bytes) / double(total)) * 100.0;
+        };
+
+        std::cout << "\n";
+        std::cout << "================ MEMORY USAGE ================\n";
+
+        std::cout << "Chunks: "<< CHUNK_COUNT<< " ("<< CHUNK_COUNT_X << " x "<< CHUNK_COUNT_Y << " x "<< CHUNK_COUNT_Z << ")\n\n";
+
+        auto printMemory = [&](const char* name, uint64_t bytes) {
+            std::cout<< name<< ": "<< bytes<< " bytes | "<< mib(bytes)<< " MiB | "<< percent(bytes)<< "%\n";
+        };
+
+        printMemory("sizeof(World)", worldStructBytes);
+
+        std::cout << "\n--- VOXELS ---\n";
+
+        printMemory("Voxel data", voxelBytesTotal);
+
+        std::cout<< "Voxel allocations: "<< voxelAllocations<< "\n";
+
+        std::cout << "\n--- LIGHTING ---\n";
+
+        printMemory("Light R", lightRBytesTotal);
+        printMemory("Light G", lightGBytesTotal);
+        printMemory("Light B", lightBBytesTotal);
+        printMemory("Light TOTAL", lightBytesTotal);
+
+        std::cout<< "Light allocations: "<< lightAllocations<< "\n";
+
+        std::cout << "\n--- TRAVERSAL ---\n";
+
+        printMemory("Occupancy", occupancyBytesTotal);
+
+        std::cout<< "Occupancy allocations: "<< occupancyAllocations<< "\n";
+
+        printMemory("Distance16", distance16BytesTotal);
+
+        std::cout<< "Distance16 allocations: "<< distance16Allocations<< "\n";
+
+        printMemory("Distance8", distance8BytesTotal);
+
+        std::cout<< "Distance8 allocations: "<< distance8Allocations<< "\n";
+
+        printMemory("Distance4 RAW", distance4RawBytes);
+
+        std::cout<< "Distance4 raw allocations: "<< distance4RawAllocations<< "\n";
+
+        printMemory("Distance4 QUANTIZED", distance4QuantizedBytes);
+
+        std::cout<< "Distance4 quantized allocations: "<< distance4QuantizedAllocations<< "\n";
+
+        printMemory("Distance4 TOTAL",distance4BytesTotal);
+
+        printMemory("All distance fields",distanceBytesTotal);
+
+        std::cout << "\n--- REMAP ---\n";
+
+        printMemory("Remap", remapBytesTotal);
+
+        std::cout<< "Remap allocations: "<< remapAllocations<< "\n";
+
+        std::cout << "\n--- TOTAL ---\n";
+
+        printMemory("TOTAL MEMORY", total);
+
+        std::cout << "Average per chunk: " << double(total) / double(CHUNK_COUNT) << " bytes | " << mib(total) / double(CHUNK_COUNT) << " MiB\n";
+
+        std::cout << "==============================================\n\n";
+
+        return total;
     }
 
-    return total;
-}
 
 };
