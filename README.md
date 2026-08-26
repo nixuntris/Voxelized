@@ -11,3 +11,8 @@ This is also setup to be plug and play with visual studio code. If you wish to u
 You're allowed to do with this project as you please, just credit where you got this code from or based it on.
 
 (This setup is based of educ8s Raylib-CPP Starter Template for VS Code)
+
+Controls are:
+W - forward
+S - backwards
+Mouse - rotation

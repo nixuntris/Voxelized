@@ -64,7 +64,7 @@ const float LOD16_START = 16.0f / PIXEL_WORLD_SLOPE;
 const int WORLD_WIDTH = 2048;
 const int WORLD_DEPTH = 2048;
 const int WORLD_HEIGHT = 512;
-const int RENDERDISTANCE = 2048;
+const int RENDERDISTANCE = 3072;
 struct VoxelChunk {
     uint8_t *voxels;
     uint8_t *voxelLightValueR;
@@ -689,15 +689,16 @@ struct World {
                     }
                     else {
                         traversalChunks[x][y][z].BuildOccupancyMask(voxelChunks[x][y][z].voxels);
-                        //int size = 32/traversalChunks[x][y][z].buildID;
-                        //voxelChunks[x][y][z].voxelLightValueR = (uint8_t*)MemAlloc(size*size*size); 
-                        //voxelChunks[x][y][z].voxelLightValueG = (uint8_t*)MemAlloc(size*size*size); 
-                        //voxelChunks[x][y][z].voxelLightValueB = (uint8_t*)MemAlloc(size*size*size); 
-                        //for (int i = 0; i < size*size*size; i++) {
-                        //    voxelChunks[x][y][z].voxelLightValueR[i] = 0;
-                        //    voxelChunks[x][y][z].voxelLightValueG[i] = 0;
-                        //    voxelChunks[x][y][z].voxelLightValueB[i] = 0;
-                        //}
+                        int size = 32/traversalChunks[x][y][z].buildID;
+                        voxelChunks[x][y][z].voxelLightValueR = (uint8_t*)MemAlloc(size*size*size); 
+                        voxelChunks[x][y][z].voxelLightValueG = (uint8_t*)MemAlloc(size*size*size); 
+                        voxelChunks[x][y][z].voxelLightValueB = (uint8_t*)MemAlloc(size*size*size); 
+                        for (int i = 0; i < size*size*size; i++) {
+                            voxelChunks[x][y][z].voxelLightValueR[i] = 0;
+                            voxelChunks[x][y][z].voxelLightValueG[i] = 0;
+                            voxelChunks[x][y][z].voxelLightValueB[i] = 0;
+                        }
+                        voxelChunks[x][y][z].containsLight = true;
                     }
                 }
             }
