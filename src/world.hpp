@@ -8,6 +8,10 @@
 #include <vector>
 #include <set>
 #include <unordered_set>
+using Clock = std::chrono::steady_clock;
+auto ms = [](auto start, auto end) {
+    return std::chrono::duration<double, std::milli>(end - start).count();
+};
 #define CELL_PTR(chunk, cellSize) \
     ((cellSize) == 8 ? &(chunk).distance8[0] : &(chunk).distance4[0])
 enum VoxelTypes {
@@ -61,8 +65,8 @@ const float LOD4_START  = 4.0f  / PIXEL_WORLD_SLOPE;
 const float LOD8_START  = 8.0f  / PIXEL_WORLD_SLOPE;
 const float LOD16_START = 16.0f / PIXEL_WORLD_SLOPE;
 
-const int WORLD_WIDTH = 2048;
-const int WORLD_DEPTH = 2048;
+const int WORLD_WIDTH = 1024;
+const int WORLD_DEPTH = 1024;
 const int WORLD_HEIGHT = 512;
 const int RENDERDISTANCE = 3072;
 struct VoxelChunk {
@@ -264,16 +268,16 @@ struct TraversalChunk {
         occupancy = (uint64_t*)MemAlloc(512*sizeof(uint64_t));
         for (int i = 0; i < 512; i++) occupancy[i] = 0;
         
-        for (int x = 0; x < 32; ++x) {
-            for (int y = 0; y < 32; ++y) {
-                for (int z = 0; z < 32; ++z) {
-                    const int index = (x << 10) | (y << 5) | z;
+        for (int word = 0; word < 512; ++word) {
+            uint64_t bits = 0;
 
-                    if (voxels[index] != 0) {
-                        occupancy[index >> 6] |= 1ull << (index & 63);
-                    }
-                }
+            const int base = word * 64;
+
+            for (int i = 0; i < 64; ++i) {
+                bits |= uint64_t(voxels[base + i] != AIR) << i;
             }
+
+            occupancy[word] = bits;
         }
     }
 };
@@ -353,7 +357,7 @@ struct World {
         const int gridY = WORLD_HEIGHT / 16;
         const int gridZ = WORLD_DEPTH / 16;
 
-
+#pragma omp parallel for collapse(3)
         for (int cx = 0; cx < WORLD_WIDTH / 32; ++cx) {
             for (int cy = 0; cy < WORLD_HEIGHT / 32; ++cy) {
                 for (int cz = 0; cz < WORLD_DEPTH / 32; ++cz) {
@@ -457,6 +461,7 @@ struct World {
         const int gridZ = WORLD_DEPTH / cellSize;
 
         
+#pragma omp parallel for collapse(3)
         for (int cx = 0; cx < WORLD_WIDTH / 32; ++cx) {
             for (int cy = 0; cy < WORLD_HEIGHT / 32; ++cy) {
                 for (int cz = 0; cz < WORLD_DEPTH / 32; ++cz) {
@@ -476,7 +481,7 @@ struct World {
                                 const int bx = sx * cellSize;
                                 const int by = sy * cellSize;
                                 const int bz = sz * cellSize;
-
+                                
                                 for (int x = 0; x < cellSize && !occupied; ++x)
                                     for (int y = 0; y < cellSize && !occupied; ++y)
                                         for (int z = 0; z < cellSize; ++z)
@@ -581,21 +586,21 @@ struct World {
             for (int z = 0; z < WORLD_DEPTH; z++) {
                 int height = noise[z * WORLD_WIDTH + x];
                 bool hasGrass = false;
+                float xz = noiseXZ[z * WORLD_WIDTH + x];
                 for (int y = 0; y <= height; y++) {
-                    int cx = x/32;
-                    int cy = y/32;
-                    int cz = z/32;
+                    int cx = x>>5;
+                    int cy = y>>5;
+                    int cz = z>>5;
                     
-                    int id = IDX(x%32,y%32,z%32,32);
+                    int id = IDX(x&31,y&31,z&31,32);
                     if (height==y) {
                         
-                        float xy = noiseXY[y * WORLD_WIDTH + x] / 255.0f;
-                        float xz = noiseXZ[z * WORLD_WIDTH + x] / 255.0f;
-                        float yz = noiseYZ[y * WORLD_DEPTH + z] / 255.0f;
+                        float xy = noiseXY[y * WORLD_WIDTH + x] ;
+                        float yz = noiseYZ[y * WORLD_DEPTH + z] ;
 
                         float density = (xy + xz + yz) / 3.0f;
 
-                        bool cave = density > 0.57f;
+                        bool cave = density > 145;
                         if (!cave) {
                             hasGrass = true;
                             voxelChunks[cx][cy][cz].containsBlocks = true;
@@ -603,21 +608,23 @@ struct World {
                         }
                     }
                     else {
-                        float xy = noiseXY[y * WORLD_WIDTH + x] / 255.0f;
-                        float xz = noiseXZ[z * WORLD_WIDTH + x] / 255.0f;
-                        float yz = noiseYZ[y * WORLD_DEPTH + z] / 255.0f;
-
-                        float density = (xy + xz + yz) / 3.0f;
-
-                        bool cave = density > 0.57f;
-                        if (!cave) {
-                                
-                            voxelChunks[cx][cy][cz].containsBlocks = true;
-                            voxelChunks[cx][cy][cz].voxels[id] = STONE;
-                        }
-                        else if (y<50) {
+                        if (y<50) {
                             voxelChunks[cx][cy][cz].containsBlocks = true;
                             voxelChunks[cx][cy][cz].voxels[id] = WATER;    
+                        }
+                        else {
+                                
+                            float xy = noiseXY[y * WORLD_WIDTH + x];
+                            float yz = noiseYZ[y * WORLD_DEPTH + z];
+
+                            float density = (xy + xz + yz) / 3.0f;
+
+                            bool cave = density > 145;
+                            if (!cave) {
+                                    
+                                voxelChunks[cx][cy][cz].containsBlocks = true;
+                                voxelChunks[cx][cy][cz].voxels[id] = STONE;
+                            }
                         }
                     }
                     if (hasGrass) {
@@ -629,11 +636,11 @@ struct World {
                             int treeHeight = GET_RANDOM_VALUE(20,50);
                             for (int i = 0; i < treeHeight && height + i < WORLD_HEIGHT; i++) {
                                     
-                                int cx = (x+dx)/32;
-                                int cy = (height+i)/32;
-                                int cz = (z+dy)/32;
+                                int cx = (x+dx)>>5;
+                                int cy = (height+i)>>5;
+                                int cz = (z+dy)>>5;
                                 
-                                voxelChunks[cx][cy][cz].voxels[IDX((x+dx)%32,(height+i)%32,(z+dy)%32,32)] = TREE_BARK;
+                                voxelChunks[cx][cy][cz].voxels[IDX((x+dx)&31,(height+i)&31,(z+dy)&31,32)] = TREE_BARK;
                                 voxelChunks[cx][cy][cz].containsBlocks = true;
                                 if (GET_RANDOM_VALUE(0,10)==1) {
                                     int dxOff = GET_RANDOM_VALUE(-1,1);
@@ -656,11 +663,11 @@ struct World {
                                         int worldY = height+treeHeight+ky;
                                         int worldZ = z+dy+kz;
                                         if (worldX<0 || worldY<0 || worldZ<0 || worldX>=WORLD_WIDTH || worldZ>=WORLD_DEPTH) continue; 
-                                        int cx = (worldX)/32;
-                                        int cy = (worldY)/32;
-                                        int cz = (worldZ)/32;
+                                        int cx = (worldX)>>5;
+                                        int cy = (worldY)>>5;
+                                        int cz = (worldZ)>>5;
                                         
-                                        voxelChunks[cx][cy][cz].voxels[IDX((worldX)%32,(worldY)%32,(worldZ)%32,32)] = LEAF;
+                                        voxelChunks[cx][cy][cz].voxels[IDX((worldX)&31,(worldY)&31,(worldZ)&31,32)] = LEAF;
                                         voxelChunks[cx][cy][cz].containsBlocks = true;
                                         
                                     }
@@ -689,7 +696,7 @@ struct World {
                     }
                     else {
                         traversalChunks[x][y][z].BuildOccupancyMask(voxelChunks[x][y][z].voxels);
-                        int size = 32/traversalChunks[x][y][z].buildID;
+/*                        int size = 32/traversalChunks[x][y][z].buildID;
                         voxelChunks[x][y][z].voxelLightValueR = (uint8_t*)MemAlloc(size*size*size); 
                         voxelChunks[x][y][z].voxelLightValueG = (uint8_t*)MemAlloc(size*size*size); 
                         voxelChunks[x][y][z].voxelLightValueB = (uint8_t*)MemAlloc(size*size*size); 
@@ -698,7 +705,7 @@ struct World {
                             voxelChunks[x][y][z].voxelLightValueG[i] = 0;
                             voxelChunks[x][y][z].voxelLightValueB[i] = 0;
                         }
-                        voxelChunks[x][y][z].containsLight = true;
+                        voxelChunks[x][y][z].containsLight = true;*/
                     }
                 }
             }
@@ -721,23 +728,29 @@ struct World {
                 }
             }
         }
+        auto terrainBeg = Clock::now();
         GenerateTerrain();
+        auto terrainEnd = Clock::now();
+        
         std::cout<<"world gen\n";
+        auto distanceLayersBeg = Clock::now();
         BuildDistanceToClosestVoxel();
         BuildDistanceLayerBaseline();
-        BuildDistanceLayer(8);
+        BuildDistanceLayer(8); //slow function
         BuildDistanceLayer(4);
+        auto distanceLayersEnd = Clock::now();
         std::cout<<"layers gen\n";
-        GenerateOccupancyMasks();
+        auto occupancyBeg = Clock::now();
+        GenerateOccupancyMasks(); //EASILY THE SLOWEST AND LEAST SCALABLE FUNC
+        auto occupancyOld = Clock::now();
         std::cout<<"occupancy gen\n";
         
         int id = 0;
+        #pragma omp parallel for collapse(3)
         for (int x = 0; x < WORLD_WIDTH/32; x++) {
             for (int y= 0 ; y < WORLD_HEIGHT/32; y++) {
                 for (int z = 0; z < WORLD_DEPTH/32; z++) {
-                    if (voxelChunks[x][y][z].CheckOriginals(traversalChunks[x][y][z].buildID)) {
-                        id+=1;
-                    }
+                    voxelChunks[x][y][z].CheckOriginals(traversalChunks[x][y][z].buildID);
                     traversalChunks[x][y][z].CheckDelta(traversalChunks[x][y][z].buildID);
                 }
             }
@@ -780,8 +793,8 @@ struct World {
                 }
             }
         }
-        GetMemoryUsageBytes();
-        
+        //GetMemoryUsageBytes();
+        std::cout<<"terrain gen: "<<ms(terrainBeg,terrainEnd)<<" distance fields: "<<ms(distanceLayersBeg,distanceLayersEnd)<<" occupancy: "<<ms(occupancyBeg,occupancyOld)<<"\n";
     }
     uint64_t GetMemoryUsageBytes() const {
 

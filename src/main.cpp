@@ -15,10 +15,6 @@
 #include <atomic>
 using Clock = std::chrono::steady_clock;
 
-auto ms = [](auto start, auto end) {
-    return std::chrono::duration<double, std::milli>(end - start).count();
-};
-
 Vector3 sunDirection = Vector3Normalize((Vector3){ 0.8f, 0.2f, 0.2f });
 Color SKYCOLOR = SKYBLUE;
 float sunDirSX = copysignf(1.0f, sunDirection.x);
@@ -91,7 +87,8 @@ class App {
         const Color colors[10] = {SKYBLUE,GREEN,{uint8_t(GREEN.r*0.9),uint8_t(GREEN.g*0.9),uint8_t(GREEN.b*0.9),255},BROWN,DARKGREEN,GRAY,YELLOW,BLUE};
         
         auto totalStart = Clock::now();
-        
+        Vector3*ids = (Vector3*)MemAlloc(width*height*sizeof(Vector3));
+                
         while (!WindowShouldClose()) {
             auto loopStart = Clock::now();
             BeginDrawing();
@@ -328,6 +325,44 @@ class App {
                 }
                 auto renderEnd = Clock::now();
                 auto lightStart = Clock::now();
+                int r = 0;
+                for (int x = 0; x < width; x++) {
+                    for (int y = 0; y < width; y++) {
+                        int pixelIndex = y * imageBuffer.width + x;
+                        if (!hits[pixelIndex].viable) continue;
+                        
+                        int origVoxelX = (int)hits[pixelIndex].x;
+                        int origVoxelY = (int)hits[pixelIndex].y;
+                        int origVoxelZ = (int)hits[pixelIndex].z;
+                        int dx = origVoxelX >> 5;
+                        int dy = origVoxelY >> 5;
+                        int dz = origVoxelZ >> 5;
+                        if (!world.voxelChunks[dx][dy][dz].containsLight) {
+                            ids[r]= {float(dx),float(dy),float(dz)};
+                            world.voxelChunks[dx][dy][dz].containsLight = true;
+                            r+=1;
+                        }
+                        
+                    }
+                }
+#pragma omp parallel for
+                for (int t = 0; t < r; t++) {
+                    int dx = ids[t].x;
+                    int dy = ids[t].y;
+                    int dz = ids[t].z;
+                    
+                    int size = 32/world.traversalChunks[dx][dy][dz].buildID;
+                    world.voxelChunks[dx][dy][dz].voxelLightValueR = (uint8_t*)MemAlloc(size*size*size); 
+                    world.voxelChunks[dx][dy][dz].voxelLightValueG = (uint8_t*)MemAlloc(size*size*size); 
+                    world.voxelChunks[dx][dy][dz].voxelLightValueB = (uint8_t*)MemAlloc(size*size*size); 
+                    for (int i = 0; i < size*size*size; i++) {
+                        world.voxelChunks[dx][dy][dz].voxelLightValueR[i] = 0;
+                        world.voxelChunks[dx][dy][dz].voxelLightValueG[i] = 0;
+                        world.voxelChunks[dx][dy][dz].voxelLightValueB[i] = 0;
+                    }
+                    
+
+                }
                 #pragma omp parallel for collapse(2)
                 for (int x = 0; x < width; x++) {
                     for (int y = 0; y < width; y++) {
@@ -349,18 +384,7 @@ class App {
                         int origLod = world.voxelChunks[dx][dy][dz].lod;
                         int origSize = world.voxelChunks[dx][dy][dz].size;
                         int id = IDX((origVoxelX % 32) / origLod, (origVoxelY % 32) / origLod, (origVoxelZ % 32) / origLod, origSize);
-                        if (!world.voxelChunks[dx][dy][dz].containsLight) {
-                            int size = 32/world.traversalChunks[dx][dy][dz].buildID;
-                            world.voxelChunks[dx][dy][dz].voxelLightValueR = (uint8_t*)MemAlloc(size*size*size); 
-                            world.voxelChunks[dx][dy][dz].voxelLightValueG = (uint8_t*)MemAlloc(size*size*size); 
-                            world.voxelChunks[dx][dy][dz].voxelLightValueB = (uint8_t*)MemAlloc(size*size*size); 
-                            for (int i = 0; i < size*size*size; i++) {
-                                world.voxelChunks[dx][dy][dz].voxelLightValueR[i] = 0;
-                                world.voxelChunks[dx][dy][dz].voxelLightValueG[i] = 0;
-                                world.voxelChunks[dx][dy][dz].voxelLightValueB[i] = 0;
-                            }
-                            world.voxelChunks[dx][dy][dz].containsLight = true;
-                        }
+                        
                         uint8_t lightValR = world.voxelChunks[dx][dy][dz].voxelLightValueR[id];
                         uint8_t lightValG = world.voxelChunks[dx][dy][dz].voxelLightValueG[id];
                         uint8_t lightValB = world.voxelChunks[dx][dy][dz].voxelLightValueB[id];
@@ -520,7 +544,7 @@ class App {
                 double lightTime = ms(lightStart, lightEnd);
                 
                 double lowrenderTime = ms(lowrenderStart, lowrenderEnd);
-                std::cout << "Frame " << frame << " | Direction: " << dirTime <<" Low render: "<<lowrenderTime << "ms | Render: " << renderTime << "ms | Light time"<<lightTime<< "ms | Total Loop: "<< loopTime << "ms | Total Runtime: " << totalTime << "ms" << std::endl;
+         //       std::cout << "Frame " << frame << " | Direction: " << dirTime <<" Low render: "<<lowrenderTime << "ms | Render: " << renderTime << "ms | Light time"<<lightTime<< "ms | Total Loop: "<< loopTime << "ms | Total Runtime: " << totalTime << "ms" << std::endl;
                     
             }
             else {
