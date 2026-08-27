@@ -31,6 +31,10 @@
 #define IDX(x, y, z, size) \
     ((int)(x) * (int)(size) * (int)(size) + \
      (int)(y) * (int)(size) + (int)(z)) 
+
+struct IVector3 {
+    int x,y,z;
+};
 inline static void GetScreenToWorldRay8(
     float x0, float py, int width, int height, const Matrix &viewInv,
     float *out_x, float *out_y, float *out_z)

@@ -65,8 +65,8 @@ const float LOD4_START  = 4.0f  / PIXEL_WORLD_SLOPE;
 const float LOD8_START  = 8.0f  / PIXEL_WORLD_SLOPE;
 const float LOD16_START = 16.0f / PIXEL_WORLD_SLOPE;
 
-const int WORLD_WIDTH = 1024;
-const int WORLD_DEPTH = 1024;
+const int WORLD_WIDTH = 2048;
+const int WORLD_DEPTH = 2048;
 const int WORLD_HEIGHT = 512;
 const int RENDERDISTANCE = 3072;
 struct VoxelChunk {
@@ -264,7 +264,7 @@ struct TraversalChunk {
 
         return quantized + delta;
     }
-    void BuildOccupancyMask(uint8_t *voxels) {
+    inline void BuildOccupancyMask(uint8_t *voxels) {
         occupancy = (uint64_t*)MemAlloc(512*sizeof(uint64_t));
         for (int i = 0; i < 512; i++) occupancy[i] = 0;
         
@@ -459,7 +459,21 @@ struct World {
         const int gridX = WORLD_WIDTH / cellSize;
         const int gridY = WORLD_HEIGHT / cellSize;
         const int gridZ = WORLD_DEPTH / cellSize;
+        const IVector3 ForwardOffsets[13] = {
+            {-1, -1, -1}, {-1, -1,  0}, {-1, -1,  1},
+            {-1,  0, -1}, {-1,  0,  0}, {-1,  0,  1},
+            {-1,  1, -1}, {-1,  1,  0}, {-1,  1,  1},
+            { 0, -1, -1}, { 0, -1,  0}, { 0, -1,  1},
+            { 0,  0, -1}
+        };
 
+        const IVector3 BackwardOffsets[13] = {
+            { 1,  1,  1}, { 1,  1,  0}, { 1,  1, -1},
+            { 1,  0,  1}, { 1,  0,  0}, { 1,  0, -1},
+            { 1, -1,  1}, { 1, -1,  0}, { 1, -1, -1},
+            { 0,  1,  1}, { 0,  1,  0}, { 0,  1, -1},
+            { 0,  0,  1}
+        };
         
 #pragma omp parallel for collapse(3)
         for (int cx = 0; cx < WORLD_WIDTH / 32; ++cx) {
@@ -512,17 +526,28 @@ struct World {
 
                     if (traversalChunk.buildID > cellSize)
                         continue;
-                    uint8_t &cur = CELL_PTR(traversalChunks[x / cellsPerChunk][y / cellsPerChunk][z/cellsPerChunk],cellSize)[IDX(x%cellsPerChunk,y%cellsPerChunk,z%cellsPerChunk,cellsPerChunk)];
-                    for (int dx = -1; dx <= 1; ++dx) {
-                        for (int dy = -1; dy <= 1; ++dy) {
-                            for (int dz = -1; dz <= 1; ++dz) {
-                                if (!(dx < 0 || (dx == 0 && dy < 0) || (dx == 0 && dy == 0 && dz < 0))) continue;
-                                const int nx = x + dx, ny = y + dy, nz = z + dz;
-                                if (nx < 0 || ny < 0 || nz < 0 || nx >= gridX || ny >= gridY || nz >= gridZ) continue;
-                                const uint8_t n = CELL_PTR(traversalChunks[nx / cellsPerChunk][ny / cellsPerChunk][nz/cellsPerChunk],cellSize)[IDX(nx%cellsPerChunk,ny%cellsPerChunk,nz%cellsPerChunk,cellsPerChunk)];
-                                if (n < 254) cur = std::min<uint8_t>(cur, n + 1);
-                            }
-                        }
+                    uint8_t &cur = CELL_PTR(traversalChunk,cellSize)[IDX(x%cellsPerChunk,y%cellsPerChunk,z%cellsPerChunk,cellsPerChunk)];
+                    for (int o = 0; o < 13; o++) {
+                        const int nx = x + ForwardOffsets[o].x;
+                        const int ny = y + ForwardOffsets[o].y;
+                        const int nz = z + ForwardOffsets[o].z;
+
+                        if (nx < 0 || ny < 0 || nz < 0 || nx >= gridX || ny >= gridY || nz >= gridZ)
+                            continue;
+
+                        const uint8_t n =
+                            CELL_PTR(
+                                traversalChunks[nx / cellsPerChunk][ny / cellsPerChunk][nz / cellsPerChunk],
+                                cellSize
+                            )[IDX(
+                                nx % cellsPerChunk,
+                                ny % cellsPerChunk,
+                                nz % cellsPerChunk,
+                                cellsPerChunk
+                            )];
+
+                        if (n < 254)
+                            cur = std::min<uint8_t>(cur, n + 1);
                     }
                 }
             }
@@ -541,17 +566,28 @@ struct World {
 
                     if (traversalChunk.buildID > cellSize)
                         continue;
-                    uint8_t &cur = CELL_PTR(traversalChunks[x / cellsPerChunk][y / cellsPerChunk][z/cellsPerChunk],cellSize)[IDX(x%cellsPerChunk,y%cellsPerChunk,z%cellsPerChunk,cellsPerChunk)];
-                    for (int dx = -1; dx <= 1; ++dx) {
-                        for (int dy = -1; dy <= 1; ++dy) {
-                            for (int dz = -1; dz <= 1; ++dz) {
-                                if (!(dx > 0 || (dx == 0 && dy > 0) || (dx == 0 && dy == 0 && dz > 0))) continue;
-                                const int nx = x + dx, ny = y + dy, nz = z + dz;
-                                if (nx < 0 || ny < 0 || nz < 0 || nx >= gridX || ny >= gridY || nz >= gridZ) continue;
-                                const uint8_t n = CELL_PTR(traversalChunks[nx / cellsPerChunk][ny / cellsPerChunk][nz/cellsPerChunk],cellSize)[IDX(nx%cellsPerChunk,ny%cellsPerChunk,nz%cellsPerChunk,cellsPerChunk)];
-                                if (n < 254) cur = std::min<uint8_t>(cur, n + 1);
-                            }
-                        }
+                    uint8_t &cur = CELL_PTR(traversalChunk,cellSize)[IDX(x%cellsPerChunk,y%cellsPerChunk,z%cellsPerChunk,cellsPerChunk)];
+                    for (int o = 0; o < 13; o++) {
+                        const int nx = x + BackwardOffsets[o].x;
+                        const int ny = y + BackwardOffsets[o].y;
+                        const int nz = z + BackwardOffsets[o].z;
+
+                        if (nx < 0 || ny < 0 || nz < 0 || nx >= gridX || ny >= gridY || nz >= gridZ)
+                            continue;
+
+                        const uint8_t n =
+                            CELL_PTR(
+                                traversalChunks[nx / cellsPerChunk][ny / cellsPerChunk][nz / cellsPerChunk],
+                                cellSize
+                            )[IDX(
+                                nx % cellsPerChunk,
+                                ny % cellsPerChunk,
+                                nz % cellsPerChunk,
+                                cellsPerChunk
+                            )];
+
+                        if (n < 254)
+                            cur = std::min<uint8_t>(cur, n + 1);
                     }
                 }
             }
@@ -686,7 +722,7 @@ struct World {
     }
     void GenerateOccupancyMasks() {
         
-#pragma omp parallel for collapse(3)
+#pragma omp parallel for collapse(3) schedule(static)
         for (int x = 0; x < WORLD_WIDTH/32; x++) {
             for (int y= 0 ; y < WORLD_HEIGHT/32; y++) {
                 for (int z = 0; z < WORLD_DEPTH/32; z++) {
@@ -694,7 +730,15 @@ struct World {
                         MemFree(voxelChunks[x][y][z].voxels);
                         voxelChunks[x][y][z].voxels = nullptr;
                     }
-                    else {
+                }
+            }
+        }
+    
+#pragma omp parallel for collapse(3) schedule(static)
+        for (int x = 0; x < WORLD_WIDTH/32; x++) {
+            for (int y= 0 ; y < WORLD_HEIGHT/32; y++) {
+                for (int z = 0; z < WORLD_DEPTH/32; z++) {
+                    if (voxelChunks[x][y][z].containsBlocks) {
                         traversalChunks[x][y][z].BuildOccupancyMask(voxelChunks[x][y][z].voxels);
 /*                        int size = 32/traversalChunks[x][y][z].buildID;
                         voxelChunks[x][y][z].voxelLightValueR = (uint8_t*)MemAlloc(size*size*size); 
