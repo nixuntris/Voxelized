@@ -1,0 +1,467 @@
+Hello, I've been working on little side projects during this summer as a part of a hackathon.
+
+One of those projects is a CPU voxel ray tracer. I began it mostly to test new ideas and play around with different rendering and optimization techniques.
+
+Along with that, I was curious to see how far I could push my 5950X in what's ultimately a fairly pointless task, since a GPU is naturally much better suited for massively parallel workloads such as ray tracing.
+
+So this isn't meant to start a CPU vs GPU discussion, but rather document a fun side project and some of the techniques I experimented with while making it faster.
+
+## Initial ray marcher / distance fields
+
+I began by writing a simple ray marcher that used distance fields equivalent to 32³ voxel regions.
+
+The idea behind the distance fields is empty-space skipping. Instead of advancing through every voxel individually, I store conservative information about the distance from a region to occupied geometry. If the current location is known to be sufficiently far away from any occupied voxel, the ray can safely move forward by that distance without checking everything in between.
+
+Initially I only had this information at the 32³ chunk level. This works well for very large empty areas, but becomes much less useful near geometry. As soon as the coarse distance field can no longer guarantee a large skip, traversal has to fall back to much smaller steps.
+
+Obviously this was slow, so I added layers with different precision.
+
+I ended up with:
+
+4³
+8³
+16³
+32³
+
+These form a hierarchy of increasingly coarse distance information.
+
+A 32³ value can cheaply reject a very large empty region. When the ray gets closer to geometry, the 16³ and 8³ layers can provide more precise information, with the 4³ layer being the finest distance field.
+
+During traversal I can query all applicable levels and use the largest safe step:
+
+float jump = std::max({
+    STEP(chunk.distanceToClosestVoxel, 32.0f),
+    STEP(chunk.distance16[...], 16.0f),
+    STEP(chunk.distance8[...],   8.0f),
+    STEP(chunk.GetDistance4(...), 4.0f)
+});
+
+The important property is that these steps have to remain conservative. Underestimating the available empty space only costs performance; overestimating it could cause the ray to skip straight through geometry.
+
+This allows traversal to take very large steps through empty parts of the world while becoming progressively more precise around actual geometry.
+
+## Multithreading
+
+I use OpenMP for easy CPU multithreading.
+
+I basically slapped:
+
+#pragma omp parallel for collapse(2)
+
+on top of the main pixel loops and it already gave me somewhat decent results.
+
+Ray tracing is particularly convenient to parallelize at this level because primary rays for individual pixels are largely independent. `collapse(2)` combines the X/Y iteration space so OpenMP has a larger set of iterations to distribute between worker threads.
+
+This obviously isn't particularly sophisticated scheduling, but it was essentially free CPU utilization and gave me a useful baseline before worrying about lower-level optimization.
+## Checkerboard rendering
+
+Another fairly large optimization was checkerboard rendering.
+
+Even after making individual rays cheaper, tracing every pixel every frame still means doing a lot of mostly redundant work.
+
+Instead, I divide the image into a checkerboard pattern and only render half of the pixels each frame:
+
+if ((x + y + frame) % 2 == 0)
+    continue;
+
+Since `frame` changes every frame, the checkerboard alternates:
+
+Frame N:        Frame N+1:
+
+X . X .         . X . X
+. X . X         X . X .
+X . X .         . X . X
+. X . X         X . X .
+```
+
+This means each individual pixel only needs a completely new ray every second frame, while the renderer still updates half of the image every frame.
+
+In the ideal case this roughly halves the amount of primary-ray traversal required per frame, although the actual performance improvement depends on how much of the frame is spent on traversal versus the other stages.
+
+The obvious problem is that simply leaving the other half of the pixels untouched isn't sufficient when the camera moves.
+
+Their previous values were generated from the previous camera position and orientation, so without correcting for that the two checkerboard halves would effectively represent two slightly different views of the world.
+
+## Reprojection
+
+To deal with that, I reproject the pixels that aren't freshly rendered.
+
+Rather than treating their old screen-space position as still valid, I use information from the previous frame to determine where that result belongs under the current camera transform.
+
+Conceptually:
+
+```text
+Previous frame
+     |
+     | previous pixel / hit information
+     v
+Reconstruct its position
+     |
+     | current camera transform
+     v
+Current screen position
+
+This lets results from the previous checkerboard frame be reused instead of immediately tracing those pixels again.
+
+So across two frames the renderer effectively behaves as:
+
+Frame N
+    Render checkerboard A
+    Reproject/reuse checkerboard B
+
+Frame N+1
+    Render checkerboard B
+    Reproject/reuse checkerboard A
+
+The important distinction is that this is temporal reuse rather than simply rendering at half resolution.
+
+The actual ray tracer still operates on full-resolution pixels. I'm reducing the frequency at which each pixel needs a completely new primary-ray traversal and using the previous frame to fill the missing information.
+
+This obviously introduces temporal problems of its own.
+
+Reprojection is only valid while the information from the previous frame still corresponds to something visible in the new frame. Camera movement can reveal previously occluded geometry, move objects across pixel boundaries, or leave regions for which the previous frame has no useful sample.
+
+These become disocclusion/reprojection errors and need to either be detected or tolerated until that checkerboard pixel receives a fresh sample.
+
+[NOTE: explain exactly what information I store for reprojection, how I reconstruct/project the sample, and what I do for invalid/disoccluded samples.]
+
+Combined with checkerboard rendering, this trades some temporal complexity for a substantial reduction in the number of primary rays that need to be fully traversed every frame.
+
+## First low-resolution pass
+
+I immediately implemented a simple low-resolution pass to accelerate the rays.
+
+Instead of making every full-resolution ray begin traversal from the camera, I trace a much smaller number of coarse rays first. Their results can then be used to estimate how far groups of full-resolution rays should be able to advance before detailed traversal becomes necessary.
+
+However, the first implementation had a big issue: it caused the final output to become biased and visibly pixelated.
+
+As it turned out, it was also accelerating the rays incorrectly, making it ironically both slower than a properly implemented version and worse looking.
+
+I tried messing around with the ray-tracer traversal itself, and eventually, out of sheer annoyance, completely deleted the low-resolution pass.
+
+## The fallback problem
+
+Afterwards I began thinking about where the traversal itself was failing.
+
+The distance fields worked well whenever they could provide a useful skip, but the fallback small step was inefficient because it essentially assumed the ray always needed to advance by a very small amount.
+
+That throws away most of the benefit of having hierarchical spatial information.
+
+Even if a distance field cannot provide another safe jump, that doesn't necessarily mean the ray needs to move by one voxel. It may still be inside a known-empty 32³, 16³, 8³ or 4³ region.
+
+Therefore I added another fallback: multi-level DDA.
+
+The DDA uses the same resolutions as the distance fields. If a region at a particular level is known to be empty, I can calculate where the ray exits that cell and skip directly to its boundary.
+
+So traversal effectively has two mechanisms:
+
+Distance field -> skip by a known-safe distance.
+
+DDA -> when no useful distance-field jump exists, skip directly to the boundary of the largest usable empty cell.
+
+Only when the hierarchy can no longer help does traversal approach individual-voxel precision.
+
+This means the hierarchy remains useful even when the distance values themselves stop producing large steps.
+
+## Low-resolution pass, again
+
+I then reimplemented the low-resolution pass.
+
+The same visual issue didn't arise this time. I don't know exactly what caused the bias in the original implementation, just that the redesigned version no longer exhibited it.
+
+The new pass works on blocks of pixels. I take representative directions from the block and construct a coarse direction for it.
+
+I also estimate how much the rays inside the block diverge. This effectively gives the coarse ray a growing cone rather than pretending all of the full-resolution rays follow exactly the same line.
+
+As the coarse traversal moves farther from the camera, the cone becomes wider. Therefore a distance-field step that would be safe for the centre ray isn't automatically safe for every ray represented by the block.
+
+I compensate for that by subtracting the cone radius from the available empty-space distance before advancing.
+
+The result is a conservative starting distance which can then be given to the full-resolution rays.
+
+Instead of every ray beginning at:
+
+t = 0;
+
+it can begin much closer to the first region where geometry might actually matter.
+
+## Occupancy masks
+
+Getting the actual value of a voxel was also relatively expensive.
+
+The renderer frequently only needs to answer:
+
+"Is there a voxel here?"
+
+It doesn't necessarily need the voxel's complete data.
+
+So I added an occupancy mask.
+
+Each bit represents whether a voxel is occupied, meaning the traversal can perform a very small bit test before touching the actual voxel storage:
+
+occupancy[index >> 6] & (1ull << (index & 63))
+
+This packs 64 occupancy states into a single 64-bit integer.
+
+That matters because voxel traversal performs an enormous number of these tests. Avoiding unnecessary accesses to the actual voxel data reduces memory traffic and improves cache behaviour.
+
+If the bit isn't set, I don't need to request any of the corresponding voxel data at all.
+
+## Sharing occupancy data
+
+The occupancy masks still represent quite a bit of data.
+
+Since they're just bitmaps, however, identical masks don't actually need separate allocations.
+
+I can compare occupancy maps and, where they're identical, have multiple chunks point to the same array instead of storing duplicate copies.
+
+This reduces the amount of unique occupancy data that the CPU needs to deal with and improves cache utilisation.
+
+It ended up being about 20% faster while being very cheap to compute.
+
+## DDA changes
+
+Naive DDA also became something I wanted to change.
+
+A conventional voxel DDA generally maintains a `tDelta` for each axis along with accumulated `tMax` values.
+
+Conceptually you have:
+
+tDeltaX = abs(1.0f / dx);
+tDeltaY = abs(1.0f / dy);
+tDeltaZ = abs(1.0f / dz);
+
+and then accumulated distances to the next X, Y and Z boundaries.
+
+Every iteration determines which boundary comes first, advances along that axis and updates the corresponding accumulated value.
+
+I don't actually need to explicitly know which axis won, however.
+
+All I need to know is:
+
+"How far can I advance `t` before the ray leaves the current cell?"
+
+So instead I find the origin of the current cell.
+
+Since my hierarchy uses power-of-two cell sizes, this is particularly cheap:
+
+bx = ix & ~(cellSize - 1);
+by = iy & ~(cellSize - 1);
+bz = iz & ~(cellSize - 1);
+
+For example, this aligns the current voxel coordinate to the beginning of its current 4, 8, 16 or 32-wide cell.
+
+I calculate the reciprocal of each ray component once:
+
+invX = 1.0f / dx;
+invY = 1.0f / dy;
+invZ = 1.0f / dz;
+
+I also calculate the sign of each component:
+
+sx = copysignf(1.0f, dx);
+sy = copysignf(1.0f, dy);
+sz = copysignf(1.0f, dz);
+
+The next boundary depends on the direction of the ray.
+
+For X, for example, a negative ray needs the lower face of the cell while a positive ray needs the upper face.
+
+Instead of:
+
+if (dx > 0)
+    ox = cellSize;
+else
+    ox = 0;
+
+I can express it arithmetically:
+
+float ox = (sx + 1.0f) * 0.5f * cellSize;
+
+Since `sx` is either -1 or +1:
+
+sx = -1 -> ox = 0
+sx = +1 -> ox = cellSize
+
+I do the same for all three axes.
+
+The parametric distance to the X boundary is then:
+
+Tx = (bx + ox - px) * (1/dx)
+
+with the equivalent calculation for Y and Z:
+
+Ty = (by + oy - py) * (1/dy)
+
+Tz = (bz + oz - pz) * (1/dz)
+
+The next boundary crossing is simply:
+
+tDelta = min(Tx, Ty, Tz);
+t += tDelta;
+
+plus a very small epsilon to ensure the new position is numerically on the other side of the boundary.
+
+Unlike the conventional formulation, I don't explicitly select an axis and then modify that axis's DDA state. I advance the continuous ray parameter `t`, then reconstruct the ray position from:
+
+P(t) = origin + direction * t
+
+on the next iteration.
+
+This makes the actual next-boundary calculation largely branchless with respect to ray direction and axis selection.
+
+Importantly, the same equation works for every level of my hierarchy. `cellSize` can be 1, 4, 8, 16 or 32 without needing separate traversal implementations.
+
+This is also quite SIMD friendly because X/Y/Z are doing essentially the same arithmetic and the final operation is a minimum rather than control flow.
+
+
+## Ray direction generation / AVX2
+
+Afterwards, ray-direction calculation became the main bottleneck.
+
+At this point making traversal faster had exposed work that previously wasn't significant enough to care about.
+
+Every pixel needs a world-space ray direction generated from its screen position and the camera matrices. Once traversal became sufficiently cheap, doing this individually for every pixel became disproportionately expensive.
+
+I took the base maths from Raylib/Raymath's ray-generation functions and modified it specifically for my needs.
+
+I then vectorized the calculation using AVX2.
+
+Instead of generating one ray direction at a time, I generate eight X/Y/Z components together.
+
+This maps well onto AVX2's eight-wide 32-bit floating-point vectors and amortizes the same camera/matrix calculations across multiple pixels.
+
+This is also an example of why profiling the final system matters: ray generation wasn't necessarily the thing that looked worth optimizing at the beginning, but after reducing traversal cost it became the bottleneck.
+
+## Voxel LOD
+
+I then implemented LOD for voxel volumes.
+
+Distant chunks don't need to retain the same voxel resolution as nearby chunks, so a chunk can represent increasingly large groups of voxels as a single value.
+
+The distance-field hierarchy also takes the chunk LOD into account.
+
+There is no point calculating precision layers that are finer than the voxel information that actually exists.
+
+For example, if a chunk has LOD 16, generating 8³ and 4³ traversal layers cannot improve the final spatial precision because the underlying chunk itself doesn't contain information at those resolutions.
+
+So those layers simply aren't generated.
+
+This reduces both preprocessing work and memory consumption without affecting the effective quality of that LOD.
+
+## Voxel lighting
+
+Afterwards I moved on to lighting.
+
+I decided to use voxel lighting partly because it makes high-performance lighting considerably easier, and partly because I prefer the look.
+
+Lighting is cached per voxel using an R8G8B8 representation.
+
+Each channel is a `uint8_t`, with values used roughly as:
+
+0       = lighting has not been calculated
+1..255  = encoded lighting value
+
+The actual floating-point lighting strength can therefore be quantized into the remaining byte range.
+
+When a visible voxel doesn't yet contain lighting information, I cast the required light/shadow ray and calculate its lighting.
+
+That result is then stored on the voxel.
+
+The important consequence is that lighting doesn't have to be recalculated every time another camera ray hits the same voxel.
+
+The first hit pays the cost of the light traversal:
+
+camera ray -> voxel -> light ray -> cache result
+
+Later hits become:
+
+camera ray -> voxel -> read cached RGB
+
+This trades memory for significantly less repeated ray traversal.
+
+It also means lighting computation becomes demand-driven. Voxels that are never visible don't necessarily need lighting calculated for them.
+
+## Dynamic lighting storage
+
+The problem is that three bytes per voxel becomes a substantial amount of memory across a large voxel world.
+
+Because of that, I'm working on dynamically allocating the lighting storage.
+
+A chunk shouldn't necessarily pay for its entire lighting cache before any of its voxels have required lighting.
+
+Instead the lighting arrays can be allocated when a chunk first needs them.
+
+This keeps completely untouched/unlit chunks from contributing the same memory overhead as actively rendered chunks.
+
+This is currently WIP.
+
+## Distance-field quantization
+
+One of the other expensive pieces of data is the distance fields themselves, particularly the highest-precision 4³ level.
+
+The finer the hierarchy becomes, the more values have to be stored.
+
+However, traversal doesn't necessarily require arbitrary floating-point precision from these values. What matters is obtaining a useful conservative skip.
+
+I therefore quantize the 4³ distance-field values.
+
+The quantized representation loses precision, but if the quantization remains conservative it only causes the ray to occasionally take a slightly shorter step than theoretically possible.
+
+That's acceptable:
+
+too short -> slightly more traversal work
+
+too long -> potentially skipped geometry
+
+So the representation needs to favour the former.
+
+In most cases this made the 4³ distance-field storage roughly 8x smaller.
+
+This is particularly useful because the highest-resolution field naturally contains the largest number of entries, so reducing the size of each entry has a disproportionate effect on total memory usage and cache pressure.
+
+## Future work
+
+### Per-chunk palette compression
+
+Voxel type data currently has additional opportunities for compression.
+
+A chunk generally only contains a relatively small number of unique voxel types, so instead of storing full global voxel IDs for every entry I can build a local palette for each chunk.
+
+Voxel entries then only need to store an index into that palette.
+
+The fewer unique materials in the chunk, the fewer bits are required per voxel.
+
+### Generate chunks over time
+
+Currently too much chunk preprocessing happens at once.
+
+Distance fields, occupancy information, LOD data and other acceleration structures don't necessarily all need to be generated immediately.
+
+I want to spread chunk generation/preprocessing across multiple frames or worker tasks so world generation doesn't cause one large stall.
+
+This doesn't necessarily reduce the total amount of work, but changes its latency characteristics and should make the renderer substantially smoother while data is being generated.
+
+### AVX2 traversal
+
+The traversal itself is an obvious remaining SIMD target.
+
+A lot of the maths has already been structured in a SIMD-friendly way:
+
+reciprocal ray directions
+
+arithmetic face selection
+
+min(Tx, Ty, Tz)
+
+hierarchical cell sizes
+
+distance-field lookups
+
+The difficult part isn't necessarily the arithmetic; it's divergence.
+
+Eight rays processed in one AVX2 vector can reach different chunks, hierarchy levels, occupied voxels and termination conditions at different times.
+
+So SIMD traversal will require dealing with inactive lanes and divergent rays without throwing away the performance gained from vectorizing the maths.
+
+This is probably the next major experiment.
