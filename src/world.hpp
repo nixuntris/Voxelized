@@ -56,9 +56,9 @@ const VoxelData voxelMetaData[10] = {
     { "",               0.000f, 0.000f, 0.000f, false, false }
 };
 const float FOVY = 120.0f;
-const float SCALE = 1;
-const int width = 800/SCALE;
-const int height = 800/SCALE;
+float SCALE = 1;
+int width = 800/SCALE;
+int height = 800/SCALE;
 const float PIXEL_WORLD_SLOPE = 2.0f * tanf(FOVY * 0.5f * DEG2RAD) / 1000;
 const float LOD2_START  = 2.0f  / PIXEL_WORLD_SLOPE;
 const float LOD4_START  = 4.0f  / PIXEL_WORLD_SLOPE;
@@ -69,7 +69,7 @@ const float LOD32_START = 32.0f / PIXEL_WORLD_SLOPE;
 int WORLD_WIDTH = 512;
 int WORLD_DEPTH = 512;
 const int WORLD_HEIGHT = 512;
-const int RENDERDISTANCE = 3072;
+const int RENDERDISTANCE = 8192;
 struct VoxelChunk {
     uint8_t *voxels;
     uint8_t *voxelLightValueR;
@@ -297,6 +297,12 @@ struct TraversalChunk {
 
     return true;
 }
+    inline uint8_t GetDistance8(int index) const {
+        if (distance8 == nullptr)
+            return 0;   
+        return distance8[index];
+    }
+
     //for reference in the traversal optimizations rather than actual usage
     inline uint8_t GetDistance4(int index) const {
         if (distance4 == nullptr) {
@@ -545,6 +551,7 @@ struct World {
                                         
                     if (traversalChunk.buildID > cellSize)
                         continue;
+                    
                     uint8_t *distance = CELL_PTR(traversalChunk,cellSize);
                     std::fill(distance, distance + cellsPerChunk * cellsPerChunk * cellsPerChunk, 255);
                     if (!voxelChunk.containsBlocks) continue;
@@ -595,7 +602,9 @@ struct World {
 
                         if (nx < 0 || ny < 0 || nz < 0 || nx >= gridX || ny >= gridY || nz >= gridZ)
                             continue;
-
+                            
+                        if (traversalChunks[nx / cellsPerChunk][ny / cellsPerChunk][nz / cellsPerChunk].buildID > cellSize)
+                            continue;
                         const uint8_t n =
                             CELL_PTR(
                                 traversalChunks[nx / cellsPerChunk][ny / cellsPerChunk][nz / cellsPerChunk],
@@ -634,8 +643,10 @@ struct World {
                         const int nz = z + BackwardOffsets[o].z;
 
                         if (nx < 0 || ny < 0 || nz < 0 || nx >= gridX || ny >= gridY || nz >= gridZ)
+                            continue;  
+                        
+                        if (traversalChunks[nx / cellsPerChunk][ny / cellsPerChunk][nz / cellsPerChunk].buildID > cellSize)
                             continue;
-
                         const uint8_t n =
                             CELL_PTR(
                                 traversalChunks[nx / cellsPerChunk][ny / cellsPerChunk][nz / cellsPerChunk],
@@ -734,8 +745,8 @@ struct World {
                     int lod = 1;
                     if (dist>LOD2_START) lod = 2;
                     if (dist>LOD4_START) lod = 4;
-                    //if (dist>LOD8_START) lod = 8;
-                    //if (dist>LOD16_START) lod = 16;
+                    if (dist>LOD8_START) lod = 8;
+                    if (dist>LOD16_START) lod = 16;
                     traversalChunks[x][y][z].buildID = lod; 
                     //voxelChunks[x][y][z].Clear();
                     traversalChunks[x][y][z].Init(lod);
@@ -771,7 +782,7 @@ struct World {
         GenerateOccupancyMasks(); //EASILY THE SLOWEST AND LEAST SCALABLE FUNC
         auto occupancyOld = Clock::now();
         
-        //GetMemoryUsageBytes();*/
+        GetMemoryUsageBytes();
         std::cout<<"terrain gen: "<<ms(terrainBeg,terrainEnd)<<" distance fields: "<<ms(distanceLayersBeg,distanceLayersEnd)<<" occupancy: "<<ms(occupancyBeg,occupancyOld)<<"\n";
     }
     uint64_t GetMemoryUsageBytes() const {

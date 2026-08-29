@@ -48,7 +48,7 @@ class App {
     Texture displayBuffer;
     Vector3 *directionStorage;
     World *world;
-    Hit hits[width*height];
+    Hit hits[1920*1080];
     int *stepStorage;
     int *oldStep;
     float *oldDistance;
@@ -179,7 +179,7 @@ class App {
                                 const float jump = std::max({
                                     STEP(chunk.distanceToClosestVoxel, 32.0f),
                                     STEP(chunk.distance16[IDX(lx >> 4,ly >> 4,lz >> 4,2)], 16.0f),
-                                    STEP(chunk.distance8[IDX(lx >> 3,ly >> 3,lz >> 3,4)], 8.0f),
+                                    STEP(chunk.GetDistance8(IDX(lx >> 3,ly >> 3,lz >> 3,4)), 8.0f),
                                     STEP(chunk.GetDistance4(IDX(lx >> 2, ly >> 2, lz >> 2, 8)), 4.0f)
                                 });
                                 const float coneRadius = t * coneSlope + CONE_GUARD;
@@ -187,7 +187,7 @@ class App {
                                 if (remainingSafe <= 0.0f) break;
 
                                 const float advance = remainingSafe / (1.0f + coneSlope);
-                                if (advance <= 0.0001f) break;
+                                if (advance <= 1.0f) break;
                                 t += advance;
                                 if (t>LOD2_START) t += advance*0.5;
                             }
@@ -202,7 +202,6 @@ class App {
                     }
                     
                 }
-                
                 auto lowrenderEnd = Clock::now();
                 
                 auto renderStart = Clock::now();
@@ -274,7 +273,7 @@ class App {
                             float jump = std::max({
                                 STEP(chunk.distanceToClosestVoxel,  std::max(32,lod)),
                                 STEP(chunk.distance16[IDX(lx >> 4, ly >> 4, lz >> 4, 2)], std::max(16,lod)),
-                                STEP(chunk.distance8[IDX(lx >> 3, ly >> 3, lz >> 3, 4)],  std::max(8,lod)),
+                                STEP(chunk.GetDistance8(IDX(lx >> 3, ly >> 3, lz >> 3, 4)),  std::max(8,lod)),
                                 STEP(chunk.GetDistance4(IDX(lx >> 2, ly >> 2, lz >> 2, 8)),  std::max(4,lod))
                             });
                                                 
@@ -291,7 +290,7 @@ class App {
                                 else if (chunk.distance16[IDX(lx >> 4,ly >> 4,lz >> 4,2)] != 0 && lod<=16) {
                                     cellSize = 16;
                                 }
-                                else if (chunk.distance8[IDX(lx >> 3,ly >> 3,lz >> 3,4)] != 0 && lod<=8) {
+                                else if (chunk.GetDistance8(IDX(lx >> 3,ly >> 3,lz >> 3,4)) != 0 && lod<=8) {
                                     cellSize = 8;
                                 }
                                 else if (chunk.GetDistance4(IDX(lx >> 2, ly >> 2, lz >> 2, 8))  != 0 && lod<=4) {
@@ -309,7 +308,8 @@ class App {
                                 float tx = (bx + ox - voxelX) * invDirLocal.x;
                                 float ty = (by + oy - voxelY) * invDirLocal.y;
                                 float tz = (bz + oz - voxelZ) * invDirLocal.z;
-                                t += std::min({tx, ty, tz}) + 0.0001f;
+                                t += std::min({tx, ty, tz}) + 0.01f;
+
 
                             }                    
                         }
@@ -471,7 +471,7 @@ class App {
                                 float jump = std::max({
                                     STEP(chunk.distanceToClosestVoxel,  std::max(32,lod)),
                                     STEP(chunk.distance16[IDX(lx >> 4, ly >> 4, lz >> 4, 2)], std::max(16,lod)),
-                                    STEP(chunk.distance8[IDX(lx >> 3, ly >> 3, lz >> 3, 4)],  std::max(8,lod)),
+                                    STEP(chunk.GetDistance8(IDX(lx >> 3, ly >> 3, lz >> 3, 4)),  std::max(8,lod)),
                                     STEP(chunk.GetDistance4(IDX(lx >> 2, ly >> 2, lz >> 2, 8)),  std::max(4,lod))
                                 });
                                 
@@ -535,8 +535,24 @@ class App {
                 double lightTime = ms(lightStart, lightEnd);
                 
                 double lowrenderTime = ms(lowrenderStart, lowrenderEnd);
-         //       std::cout << "Frame " << frame << " | Direction: " << dirTime <<" Low render: "<<lowrenderTime << "ms | Render: " << renderTime << "ms | Light time"<<lightTime<< "ms | Total Loop: "<< loopTime << "ms | Total Runtime: " << totalTime << "ms" << std::endl;
-                    
+                if (IsKeyDown(KEY_ONE)) {
+                                        
+                    SCALE = 1;
+                    width = 800/SCALE;
+                    height = 800/SCALE;
+                }
+                if (IsKeyDown(KEY_TWO)) {
+                                        
+                    SCALE = 1.3;
+                    width = 800/SCALE;
+                    height = 800/SCALE;
+                }
+                if (IsKeyDown(KEY_THREE)) {
+                                        
+                    SCALE = 1.5;
+                    width = 800/SCALE;
+                    height = 800/SCALE;
+                }
             }
             else if (worldFinished==1) {
                 DisableCursor();
