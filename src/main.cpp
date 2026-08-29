@@ -81,7 +81,8 @@ class App {
         oldDistance = (float*)MemAlloc(BUFFER_SIZE*sizeof(float));
         oldStep = (int*)MemAlloc(BUFFER_SIZE*sizeof(int));
         ids =  (Vector3*)MemAlloc(BUFFER_SIZE*sizeof(Vector3));
-        for (int i = 0; i < BUFFER_SIZE; i++) {
+        world = new World;
+         for (int i = 0; i < BUFFER_SIZE; i++) {
             oldStep[i] = 0;
             oldDistance[i] = 0;
         }
@@ -591,23 +592,37 @@ class App {
                             SetTargetFPS(-1);
                         }
                     }
-                    else if (CheckCollisionRecs({250.0f, 220.0f+90.0f, 300.0f, 60.0f},{(float)GetMouseX(),(float)GetMouseY(),1,1})) {
+                    else if (CheckCollisionRecs({250.0f, 220.0f+180.0f, 300.0f, 60.0f},{(float)GetMouseX(),(float)GetMouseY(),1,1})) {
                         if (IsMouseButtonPressed(0)) {
                             gui = 1;
                         }
                     }
-                    else if (CheckCollisionRecs({250.0f, 220.0+180.0f, 300.0f, 60.0f},{(float)GetMouseX(),(float)GetMouseY(),1,1})) {
+                    else if (CheckCollisionRecs({250.0f, 220.0f+90.0f, 300.0f, 60.0f},{(float)GetMouseX(),(float)GetMouseY(),1,1})) {
+                        if (IsMouseButtonPressed(0)) {
+                            if (worker.joinable()) {
+                                worker.join();
+                            }
+                            world->Reset();
+                            worldFinished = 0;
+                            gui = 0;
+                        }
+                    }
+                    else if (CheckCollisionRecs({250.0f, 220.0+270.0f, 300.0f, 60.0f},{(float)GetMouseX(),(float)GetMouseY(),1,1})) {
                         if (IsMouseButtonPressed(0)) {
                             CloseWindow();
                         }
                     }
                     DrawRectangle(250,220+90,300,60,{WHITE.r,WHITE.g,WHITE.b,transparency});
-                    DrawRectangleLinesEx({250.0f, 220.0f + 90.0f, 300.0f, 60.0f}, 3,  {BLACK.r,BLACK.g,BLACK.b,transparency});
-                    DrawText("Graphics", 275, 328, 24,  {BLACK.r,BLACK.g,BLACK.b,transparency});
+                    DrawRectangleLinesEx({250.0f, 220.0f + 90, 300.0f, 60.0f}, 3,  {BLACK.r,BLACK.g,BLACK.b,transparency});
+                    DrawText("Main Menu", 275, 328, 24,  {BLACK.r,BLACK.g,BLACK.b,transparency});
                    
                     DrawRectangle(250,220+180,300,60,{WHITE.r,WHITE.g,WHITE.b,transparency});
-                    DrawRectangleLinesEx({250.0f, 220.0f + 180.0f, 300.0f, 60.0f}, 3, {BLACK.r,BLACK.g,BLACK.b,transparency});
-                    DrawText("Quit", 275, 418, 24,  {BLACK.r,BLACK.g,BLACK.b,transparency});
+                    DrawRectangleLinesEx({250.0f, 220.0f + 180, 300.0f, 60.0f}, 3,  {BLACK.r,BLACK.g,BLACK.b,transparency});
+                    DrawText("Graphics", 275, 418, 24,  {BLACK.r,BLACK.g,BLACK.b,transparency});
+                   
+                    DrawRectangle(250,220+270,300,60,{WHITE.r,WHITE.g,WHITE.b,transparency});
+                    DrawRectangleLinesEx({250.0f, 220.0f + 270.0f, 300.0f, 60.0f}, 3, {BLACK.r,BLACK.g,BLACK.b,transparency});
+                    DrawText("Quit", 275, 508, 24,  {BLACK.r,BLACK.g,BLACK.b,transparency});
                     
                 }
                 else if (gui==1) {
@@ -679,7 +694,6 @@ class App {
                         if (IsMouseButtonDown(0)) {
                             worldFinished = 1;                     
                             worker = std::thread([=]() {
-                                world = new World;
                                 world->Init(camera.position);
                                 worldFinished.store(2);
                             });

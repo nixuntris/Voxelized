@@ -33,7 +33,7 @@ struct VoxelData {
     bool reflective;
 
 };
-const float shadowQuality = 4;
+const float shadowQuality = 1.4;
 const VoxelData voxelMetaData[10] = {
     { "air",            1.000f, 1.000f, 1.000f, true,  false },
 
@@ -351,7 +351,62 @@ struct TraversalChunk {
 struct World {
     VoxelChunk voxelChunks[8192/32][WORLD_HEIGHT/32][8192/32];
     TraversalChunk traversalChunks[8192/32][WORLD_HEIGHT/32][8192/32];
-    
+    void Reset()
+{
+    const int CHUNK_COUNT_X = WORLD_WIDTH  / 32;
+    const int CHUNK_COUNT_Y = WORLD_HEIGHT / 32;
+    const int CHUNK_COUNT_Z = WORLD_DEPTH  / 32;
+
+    std::unordered_set<void*> freedPointers;
+
+    auto SafeFree = [&](void*& ptr)
+    {
+        if (ptr != nullptr)
+        {
+            if (freedPointers.insert(ptr).second)
+                MemFree(ptr);
+
+            ptr = nullptr;
+        }
+    };
+
+    for (int x = 0; x < CHUNK_COUNT_X; ++x)
+    {
+        for (int y = 0; y < CHUNK_COUNT_Y; ++y)
+        {
+            for (int z = 0; z < CHUNK_COUNT_Z; ++z)
+            {
+                VoxelChunk& v = voxelChunks[x][y][z];
+                TraversalChunk& t = traversalChunks[x][y][z];
+
+                SafeFree(reinterpret_cast<void*&>(v.voxels));
+                SafeFree(reinterpret_cast<void*&>(v.voxelLightValueR));
+                SafeFree(reinterpret_cast<void*&>(v.voxelLightValueG));
+                SafeFree(reinterpret_cast<void*&>(v.voxelLightValueB));
+                SafeFree(reinterpret_cast<void*&>(v.remap));
+
+                SafeFree(reinterpret_cast<void*&>(t.occupancy));
+                SafeFree(reinterpret_cast<void*&>(t.distance16));
+                SafeFree(reinterpret_cast<void*&>(t.distance8));
+                SafeFree(reinterpret_cast<void*&>(t.distance4));
+
+                v.containsLight  = false;
+                v.containsBlocks = false;
+                v.palletized     = 0;
+                v.filledOut      = 0;
+                v.lod            = -1;
+                v.size           = 0;
+
+                t.distanceToClosestVoxel = 0;
+                t.buildID                = 0;
+                t.only                   = 0;
+                t.quantized              = 0;
+                t.distance4Bits          = 0;
+                t.containsData           = false;
+            }
+        }
+    }
+}
     inline uint8_t GetVoxel(int x, int y, int z) const {
             
         int cx = x / 32;
