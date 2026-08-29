@@ -66,8 +66,8 @@ const float LOD8_START  = 8.0f  / PIXEL_WORLD_SLOPE;
 const float LOD16_START = 16.0f / PIXEL_WORLD_SLOPE;
 const float LOD32_START = 32.0f / PIXEL_WORLD_SLOPE;
 
-const int WORLD_WIDTH = 2048;
-const int WORLD_DEPTH = 2048;
+int WORLD_WIDTH = 512;
+int WORLD_DEPTH = 512;
 const int WORLD_HEIGHT = 512;
 const int RENDERDISTANCE = 3072;
 struct VoxelChunk {
@@ -94,9 +94,6 @@ struct VoxelChunk {
                 for (int my = 0; my < 32; my++) {
                     
                     int y = chunkY+my;
-                    int cx = x>>5;
-                    int cy = y>>5;
-                    int cz = z>>5;
                     
                     int id = IDX(mx,my,mz,32);
                     if (height==y) {
@@ -346,8 +343,8 @@ struct TraversalChunk {
     }
 };
 struct World {
-    VoxelChunk voxelChunks[WORLD_WIDTH/32][WORLD_HEIGHT/32][WORLD_DEPTH/32];
-    TraversalChunk traversalChunks[WORLD_WIDTH/32][WORLD_HEIGHT/32][WORLD_DEPTH/32];
+    VoxelChunk voxelChunks[8192/32][WORLD_HEIGHT/32][8192/32];
+    TraversalChunk traversalChunks[8192/32][WORLD_HEIGHT/32][8192/32];
     
     inline uint8_t GetVoxel(int x, int y, int z) const {
             
@@ -362,9 +359,9 @@ struct World {
     }
 
     void BuildDistanceToClosestVoxel() {
-        constexpr int CHUNK_COUNT_X = WORLD_WIDTH / 32;
-        constexpr int CHUNK_COUNT_Y = WORLD_HEIGHT / 32;
-        constexpr int CHUNK_COUNT_Z = WORLD_DEPTH / 32;
+        int CHUNK_COUNT_X = WORLD_WIDTH / 32;
+        int CHUNK_COUNT_Y = WORLD_HEIGHT / 32;
+        int CHUNK_COUNT_Z = WORLD_DEPTH / 32;
 
         struct ChunkPos { int x, y, z; };
         std::queue<ChunkPos> q;
@@ -761,7 +758,6 @@ struct World {
         BuildDistanceLayer(4);
         std::cout<<"4\n";
         auto distanceLayersEnd = Clock::now();
-        int id = 0;
         #pragma omp parallel for collapse(3)
         for (int x = 0; x < WORLD_WIDTH/32; x++) {
             for (int y= 0 ; y < WORLD_HEIGHT/32; y++) {
@@ -824,11 +820,11 @@ struct World {
             }
         };
 
-        constexpr int CHUNK_COUNT_X = WORLD_WIDTH  / 32;
-        constexpr int CHUNK_COUNT_Y = WORLD_HEIGHT / 32;
-        constexpr int CHUNK_COUNT_Z = WORLD_DEPTH  / 32;
+        int CHUNK_COUNT_X = WORLD_WIDTH  / 32;
+        int CHUNK_COUNT_Y = WORLD_HEIGHT / 32;
+        int CHUNK_COUNT_Z = WORLD_DEPTH  / 32;
 
-        constexpr uint64_t CHUNK_COUNT = uint64_t(CHUNK_COUNT_X) * uint64_t(CHUNK_COUNT_Y) * uint64_t(CHUNK_COUNT_Z);
+        uint64_t CHUNK_COUNT = uint64_t(CHUNK_COUNT_X) * uint64_t(CHUNK_COUNT_Y) * uint64_t(CHUNK_COUNT_Z);
 
         for (int x = 0; x < CHUNK_COUNT_X; ++x) {
             for (int y = 0; y < CHUNK_COUNT_Y; ++y) {

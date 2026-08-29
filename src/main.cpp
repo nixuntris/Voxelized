@@ -52,12 +52,11 @@ class App {
     int *stepStorage;
     int *oldStep;
     float *oldDistance;
-    std::atomic<bool> worldFinished{false};
+    std::atomic<int> worldFinished{0};
     std::thread worker;
     App() {
         InitWindow(width*SCALE,height*SCALE,"Voxelized");
         std::cout<<LOD4_START<<" "<<LOD8_START<<" "<<LOD16_START<<" "<<LOD32_START<<"\n";
-        camera.position = (Vector3){ WORLD_WIDTH/2, 384, WORLD_DEPTH/2 };
         camera.target = (Vector3){ 0.0f, 2.0f, 0.0f };
         camera.up = (Vector3){ 0.0f, 1.0f, 0.0f };
         camera.fovy = FOVY;
@@ -75,12 +74,6 @@ class App {
             oldStep[i] = 0;
             oldDistance[i] = 0;
         }
-        worker = std::thread([=]() {
-            world = new World;
-            world->Init(camera.position);
-            worldFinished.store(true);
-        });
-        DisableCursor();
         
     }
     void Run() {
@@ -94,15 +87,14 @@ class App {
         while (!WindowShouldClose()) {
             auto loopStart = Clock::now();
             BeginDrawing();
-            ClearBackground(SKYBLUE);
+            ClearBackground(WHITE);
 
             Matrix matView = MatrixLookAt(camera.position, camera.target, camera.up);
             Matrix viewInv = MatrixInvert(matView);
 
             frame++;
-            if (worldFinished) {
-                    
-                auto dirStart = Clock::now();
+            if (worldFinished==2) {
+                 auto dirStart = Clock::now();
                 #pragma omp parallel for
                 for (int y = 0; y < height; y++) {
                     alignas(32) float xs[8], ys[8], zs[8];
@@ -371,9 +363,10 @@ class App {
                         int idx = (y * imageBuffer.width + x) * 3;
                         if (!hits[pixelIndex].viable) continue;
                         uint8_t type = hits[y * imageBuffer.width + x].type;
-                        float strengthR = 1.0f+(float(SKYCOLOR.r)/255.0f)*0.18;
-                        float strengthG = 1.0f+(float(SKYCOLOR.g)/255.0f)*0.18;
-                        float strengthB = 1.0f+(float(SKYCOLOR.b)/255.0f)*0.18;
+                        float ambienceEffect = 0.36;
+                        float strengthR = 1.0f-ambienceEffect+(float(SKYCOLOR.r)/255.0f)*ambienceEffect;
+                        float strengthG = 1.0f-ambienceEffect+(float(SKYCOLOR.g)/255.0f)*ambienceEffect;
+                        float strengthB = 1.0f-ambienceEffect+(float(SKYCOLOR.b)/255.0f)*ambienceEffect;
                         
                         int origVoxelX = (int)hits[pixelIndex].x;
                         int origVoxelY = (int)hits[pixelIndex].y;
@@ -397,9 +390,6 @@ class App {
                                 strengthB = float(lightValB - 1) / 253.0f;
                             }
                         } else {
-                            lightValR = 1;
-                            lightValG = 1;
-                            lightValB = 1;
                             float shadowT = 0.0f;
                             float shadowX = hits[pixelIndex].x;
                             float shadowY = hits[pixelIndex].y;
@@ -548,8 +538,36 @@ class App {
          //       std::cout << "Frame " << frame << " | Direction: " << dirTime <<" Low render: "<<lowrenderTime << "ms | Render: " << renderTime << "ms | Light time"<<lightTime<< "ms | Total Loop: "<< loopTime << "ms | Total Runtime: " << totalTime << "ms" << std::endl;
                     
             }
-            else {
+            else if (worldFinished==1) {
+                DisableCursor();
                 DrawText("Generating the world, please wait!", 0,0,25,BLACK);
+                EndDrawing();
+            }
+            else if (worldFinished==0) {
+                auto Button = [&](float x, float y, int worldSize, const char* text) {
+                    DrawRectangleLinesEx({x, y, 200.0f, 50.0f}, 3, BLACK);
+                    DrawText(text, x, y, 20, BLACK);
+                    if (CheckCollisionRecs({x, y, 200.0f, 50.0f},{(float)GetMouseX(),(float)GetMouseY(),1,1})) {
+                        DrawRectangle(x,y, 200.0f, 50.0f, {GRAY.r,GRAY.g,GRAY.b,50});
+                        WORLD_WIDTH = worldSize;
+                        WORLD_DEPTH = worldSize;
+                        
+                        camera.position = (Vector3){ WORLD_WIDTH/2, 384, WORLD_DEPTH/2 };
+                        if (IsMouseButtonDown(0)) {
+                            worldFinished = 1;                     
+                            worker = std::thread([=]() {
+                                world = new World;
+                                world->Init(camera.position);
+                                worldFinished.store(2);
+                            });
+                        }
+                    }
+                };
+                Button(0,100,512,"512x512");
+                Button(0,160,1024,"1024x1024");
+                Button(0,220,2048,"2048x2048");
+                Button(0,280,3072,"3072x3072");
+                Button(0,340,4096,"4096x4096");
                 EndDrawing();
             }
             
