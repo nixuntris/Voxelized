@@ -221,8 +221,8 @@ class App {
                         int idx = (y * imageBuffer.width + x) * 3;
                         int pixelIndex = x * BUFFER_HEIGHT + y;
 
-                        if ((x + y + frame) % 2 == 0) continue;
                         hits[pixelIndex].viable = false;
+                        if ((x + y + frame) % 2 == 0) continue;
                         ((unsigned char *)imageBuffer.data)[idx] = SKYCOLOR.r;
                         ((unsigned char *)imageBuffer.data)[idx + 1] = SKYCOLOR.g;
                         ((unsigned char *)imageBuffer.data)[idx + 2] = SKYCOLOR.b;
@@ -356,6 +356,7 @@ class App {
                     int dz = ids[t].z;
                     
                     int size = 32/world->traversalChunks[dx][dy][dz].buildID;
+                    size/=shadowQuality;
                     world->voxelChunks[dx][dy][dz].voxelLightValueR = (uint8_t*)MemAlloc(size*size*size); 
                     world->voxelChunks[dx][dy][dz].voxelLightValueG = (uint8_t*)MemAlloc(size*size*size); 
                     world->voxelChunks[dx][dy][dz].voxelLightValueB = (uint8_t*)MemAlloc(size*size*size); 
@@ -388,7 +389,8 @@ class App {
                         int dz = origVoxelZ >> 5;
                         
                         int origLod = world->voxelChunks[dx][dy][dz].lod;
-                        int origSize = world->voxelChunks[dx][dy][dz].size;
+                        int origSize = world->voxelChunks[dx][dy][dz].size/shadowQuality;
+                        origLod*=shadowQuality;
                         int id = IDX((origVoxelX % 32) / origLod, (origVoxelY % 32) / origLod, (origVoxelZ % 32) / origLod, origSize);
                         
                         uint8_t lightValR = world->voxelChunks[dx][dy][dz].voxelLightValueR[id];

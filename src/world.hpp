@@ -33,7 +33,7 @@ struct VoxelData {
     bool reflective;
 
 };
-
+const float shadowQuality = 4;
 const VoxelData voxelMetaData[10] = {
     { "air",            1.000f, 1.000f, 1.000f, true,  false },
 
@@ -56,7 +56,7 @@ const VoxelData voxelMetaData[10] = {
     { "",               0.000f, 0.000f, 0.000f, false, false }
 };
 const float FOVY = 120.0f;
-float SCALE = 1;
+float SCALE = 1.4;
 int width = 800/SCALE;
 int height = 800/SCALE;
 const float PIXEL_WORLD_SLOPE = 2.0f * tanf(FOVY * 0.5f * DEG2RAD) / 1000;
@@ -723,6 +723,7 @@ struct World {
                     if (voxelChunks[x][y][z].containsBlocks) {
                         traversalChunks[x][y][z].BuildOccupancyMask(voxelChunks[x][y][z].voxels);
                         int size = 32/traversalChunks[x][y][z].buildID;
+                        size/=shadowQuality;
                         voxelChunks[x][y][z].voxelLightValueR = (uint8_t*)MemAlloc(size*size*size); 
                         voxelChunks[x][y][z].voxelLightValueG = (uint8_t*)MemAlloc(size*size*size); 
                         voxelChunks[x][y][z].voxelLightValueB = (uint8_t*)MemAlloc(size*size*size); 
@@ -851,8 +852,8 @@ struct World {
                     }
                      if (v.containsBlocks && t.buildID != 0) {
 
-                        const uint64_t lightSide = 32u / t.buildID;
-
+                        uint64_t lightSide = 32u / t.buildID;
+                        lightSide/=shadowQuality;
                         const uint64_t lightBytes =lightSide *lightSide *lightSide;
 
                         addAllocation(v.voxelLightValueR,lightBytes,lightRBytesTotal,lightAllocations);
