@@ -56,7 +56,7 @@ const VoxelData voxelMetaData[10] = {
     { "",               0.000f, 0.000f, 0.000f, false, false }
 };
 const float FOVY = 120.0f;
-float SCALE = 1.4;
+float SCALE = 1;
 int width = 800/SCALE;
 int height = 800/SCALE;
 const float PIXEL_WORLD_SLOPE = 2.0f * tanf(FOVY * 0.5f * DEG2RAD) / 1000;

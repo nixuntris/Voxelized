@@ -57,11 +57,9 @@ inline static void GetScreenToWorldRay8(
     const __m256 m0 = _mm256_set1_ps(viewInv.m0), m4 = _mm256_set1_ps(viewInv.m4), m8  = _mm256_set1_ps(viewInv.m8);
     const __m256 m1 = _mm256_set1_ps(viewInv.m1), m5 = _mm256_set1_ps(viewInv.m5), m9  = _mm256_set1_ps(viewInv.m9);
     const __m256 m2 = _mm256_set1_ps(viewInv.m2), m6 = _mm256_set1_ps(viewInv.m6), m10 = _mm256_set1_ps(viewInv.m10);
-
-    __m256 wx = _mm256_fmadd_ps(m4, viewY, _mm256_fmadd_ps(m0, viewX, m8));
-    __m256 wy = _mm256_fmadd_ps(m5, viewY, _mm256_fmadd_ps(m1, viewX, m9));
-    __m256 wz = _mm256_fmadd_ps(m6, viewY, _mm256_fmadd_ps(m2, viewX, m10));
-
+    __m256 wx = _mm256_fmadd_ps(m4, viewY,_mm256_fmadd_ps(m0, viewX, _mm256_sub_ps(_mm256_setzero_ps(), m8)));
+    __m256 wy = _mm256_fmadd_ps(m5, viewY,_mm256_fmadd_ps(m1, viewX, _mm256_sub_ps(_mm256_setzero_ps(), m9)));
+    __m256 wz = _mm256_fmadd_ps(m6, viewY,_mm256_fmadd_ps(m2, viewX, _mm256_sub_ps(_mm256_setzero_ps(), m10)));
     __m256 lenSq = _mm256_fmadd_ps(wz, wz, _mm256_fmadd_ps(wy, wy, _mm256_mul_ps(wx, wx)));
 
     __m256 r0 = _mm256_rsqrt_ps(lenSq);
