@@ -154,26 +154,7 @@ struct VoxelChunk {
             uint8_t tt = voxels[IDX(0,0,0,32)];
             int commons[256];
             for (int i = 0; i < 256; i++) commons[i] = 0;
-            if (lod==32) {
-                //count the most common block
-                    
-                for (int x = 0; x < 32; x++) {
-                    for (int y= 0 ; y < 32; y++) {
-                        for (int z = 0; z < 32; z++) {
-                            commons[voxels[IDX(x,y,z,32)]]++;
-                        }
-                    }
-                }
-                int mostCommon = 1;
-                for (int i = 1; i < 256; i++) {
-                    if (commons[i]>commons[mostCommon]) {
-                        mostCommon = i;
-                    }
-                }
-                free(voxels);
-                filledOut = mostCommon;
-            }
-            else if (lod!=1) {
+            if (lod!=1) {
                 //just pick at random
                 uint8_t *lodVer = (uint8_t*)MemAlloc(size*size*size);
                 for (int x = 0; x < size; x++) {
@@ -204,7 +185,7 @@ struct VoxelChunk {
                         }
                     }
                 }
-                free(voxels);
+                MemFree(voxels);
                 voxels = lodVer;
             }
             return true;
@@ -340,16 +321,23 @@ struct TraversalChunk {
 
         return quantized + delta;
     }
-    inline void BuildOccupancyMask(uint8_t *voxels) {
-        occupancy = (uint64_t*)MemAlloc(512*sizeof(uint64_t));
-        for (int i = 0; i < 512; i++) occupancy[i] = 0;
-        
-        for (int word = 0; word < 512; ++word) {
+    
+    inline void BuildOccupancyMask(const uint8_t *voxels) {
+        const int side = 32 / buildID;
+        const int voxelCount = side * side * side;
+        const int wordCount = (voxelCount + 63) / 64;
+
+        occupancy = (uint64_t*)MemAlloc(wordCount * sizeof(uint64_t));
+        std::fill(occupancy, occupancy + wordCount, 0ull);
+
+
+        for (int word = 0; word < wordCount; ++word) {
             uint64_t bits = 0;
-
             const int base = word * 64;
+            const int remaining = voxelCount - base;
+            const int bitCount = remaining < 64 ? remaining : 64;
 
-            for (int i = 0; i < 64; ++i) {
+            for (int i = 0; i < bitCount; ++i) {
                 bits |= uint64_t(voxels[base + i] != AIR) << i;
             }
 
@@ -726,7 +714,7 @@ struct World {
                 for (int z = 0; z < WORLD_DEPTH/32; z++) {
                     if (voxelChunks[x][y][z].containsBlocks) {
                         traversalChunks[x][y][z].BuildOccupancyMask(voxelChunks[x][y][z].voxels);
-/*                        int size = 32/traversalChunks[x][y][z].buildID;
+                        int size = 32/traversalChunks[x][y][z].buildID;
                         voxelChunks[x][y][z].voxelLightValueR = (uint8_t*)MemAlloc(size*size*size); 
                         voxelChunks[x][y][z].voxelLightValueG = (uint8_t*)MemAlloc(size*size*size); 
                         voxelChunks[x][y][z].voxelLightValueB = (uint8_t*)MemAlloc(size*size*size); 
@@ -735,7 +723,7 @@ struct World {
                             voxelChunks[x][y][z].voxelLightValueG[i] = 0;
                             voxelChunks[x][y][z].voxelLightValueB[i] = 0;
                         }
-                        voxelChunks[x][y][z].containsLight = true;*/
+                        voxelChunks[x][y][z].containsLight = true;
                     }
                 }
             }
@@ -749,8 +737,8 @@ struct World {
                     int lod = 1;
                     if (dist>LOD2_START) lod = 2;
                     if (dist>LOD4_START) lod = 4;
-                    if (dist>LOD8_START) lod = 8;
-                    if (dist>LOD16_START) lod = 16;
+                    //if (dist>LOD8_START) lod = 8;
+                    //if (dist>LOD16_START) lod = 16;
                     traversalChunks[x][y][z].buildID = lod; 
                     //voxelChunks[x][y][z].Clear();
                     traversalChunks[x][y][z].Init(lod);
@@ -773,9 +761,6 @@ struct World {
         BuildDistanceLayer(4);
         std::cout<<"4\n";
         auto distanceLayersEnd = Clock::now();
-        auto occupancyBeg = Clock::now();
-        GenerateOccupancyMasks(); //EASILY THE SLOWEST AND LEAST SCALABLE FUNC
-        auto occupancyOld = Clock::now();
         int id = 0;
         #pragma omp parallel for collapse(3)
         for (int x = 0; x < WORLD_WIDTH/32; x++) {
@@ -786,6 +771,10 @@ struct World {
                 }
             }
         }
+        auto occupancyBeg = Clock::now();
+        GenerateOccupancyMasks(); //EASILY THE SLOWEST AND LEAST SCALABLE FUNC
+        auto occupancyOld = Clock::now();
+        
         //GetMemoryUsageBytes();*/
         std::cout<<"terrain gen: "<<ms(terrainBeg,terrainEnd)<<" distance fields: "<<ms(distanceLayersBeg,distanceLayersEnd)<<" occupancy: "<<ms(occupancyBeg,occupancyOld)<<"\n";
     }

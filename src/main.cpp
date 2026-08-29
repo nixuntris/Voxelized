@@ -254,13 +254,12 @@ class App {
                                 int lx = int(voxelX) % 32;
                                 int ly = int(voxelY) % 32;
                                 int lz = int(voxelZ) % 32;
-                                int index = lx * 32 * 32 + ly * 32 + lz;
-                                
-                                if (world->traversalChunks[cx][cy][cz].occupancy[index >> 6] & (1ull << (index & 63))) {
+                                int lodr = world->voxelChunks[cx][cy][cz].lod; 
+                                int lodIndex = IDX(lx/lodr,ly/lodr,lz/lodr,world->voxelChunks[cx][cy][cz].size);
+                                if (world->traversalChunks[cx][cy][cz].occupancy[lodIndex >> 6] & (1ull << (lodIndex & 63))) {
                                     uint8_t type;
                                     if (world->voxelChunks[cx][cy][cz].palletized==0) {
-                                        int lod = world->voxelChunks[cx][cy][cz].lod; 
-                                        type = world->voxelChunks[cx][cy][cz].voxels[IDX(lx/lod,ly/lod,lz/lod,world->voxelChunks[cx][cy][cz].size)];
+                                        type = world->voxelChunks[cx][cy][cz].voxels[lodIndex];
                                         
                                     }
                                     else type = world->voxelChunks[cx][cy][cz].palletized;
@@ -372,9 +371,9 @@ class App {
                         int idx = (y * imageBuffer.width + x) * 3;
                         if (!hits[pixelIndex].viable) continue;
                         uint8_t type = hits[y * imageBuffer.width + x].type;
-                        float strengthR = 1.0f+SKYCOLOR.r*0.18;
-                        float strengthG = 1.0f+SKYCOLOR.g*0.18;
-                        float strengthB = 1.0f+SKYCOLOR.b*0.18;
+                        float strengthR = 1.0f+(float(SKYCOLOR.r)/255.0f)*0.18;
+                        float strengthG = 1.0f+(float(SKYCOLOR.g)/255.0f)*0.18;
+                        float strengthB = 1.0f+(float(SKYCOLOR.b)/255.0f)*0.18;
                         
                         int origVoxelX = (int)hits[pixelIndex].x;
                         int origVoxelY = (int)hits[pixelIndex].y;
@@ -391,13 +390,16 @@ class App {
                         uint8_t lightValG = world->voxelChunks[dx][dy][dz].voxelLightValueG[id];
                         uint8_t lightValB = world->voxelChunks[dx][dy][dz].voxelLightValueB[id];
 
-                        if (lightValR != 0) {
+                        if (lightValR != 0 || lightValB != 0|| lightValG !=0 ) {
                             if (lightValR != 1) {
                                 strengthR = float(lightValR - 1) / 253.0f;
                                 strengthG = float(lightValG - 1) / 253.0f;
                                 strengthB = float(lightValB - 1) / 253.0f;
                             }
                         } else {
+                            lightValR = 1;
+                            lightValG = 1;
+                            lightValB = 1;
                             float shadowT = 0.0f;
                             float shadowX = hits[pixelIndex].x;
                             float shadowY = hits[pixelIndex].y;
@@ -434,12 +436,12 @@ class App {
                                 int ly = iy & 31;
                                 int lz = iz & 31;
                                 if (world->voxelChunks[cx][cy][cz].containsBlocks) {
-                                    int index = lx * 32 * 32 + ly * 32 + lz;
-                                    if (world->traversalChunks[cx][cy][cz].occupancy[index >> 6] & (1ull << (index & 63))) {
+                                    int lodr = world->voxelChunks[cx][cy][cz].lod; 
+                                    int lodIndex = IDX(lx/lodr,ly/lodr,lz/lodr,world->voxelChunks[cx][cy][cz].size);
+                                    if (world->traversalChunks[cx][cy][cz].occupancy[lodIndex >> 6] & (1ull << (lodIndex & 63))) {
                                         uint8_t typer;
                                         if (world->voxelChunks[cx][cy][cz].palletized==0) {
-                                            int lod = world->voxelChunks[cx][cy][cz].lod; 
-                                            typer = world->voxelChunks[cx][cy][cz].voxels[IDX(lx/lod,ly/lod,lz/lod,world->voxelChunks[cx][cy][cz].size)];
+                                            typer = world->voxelChunks[cx][cy][cz].voxels[lodIndex];
                                             
                                         }
                                         else typer = world->voxelChunks[cx][cy][cz].palletized;
