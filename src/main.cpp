@@ -15,6 +15,10 @@
 #include <atomic>
 using Clock = std::chrono::steady_clock;
 
+constexpr int BUFFER_WIDTH = 1920;
+constexpr int BUFFER_HEIGHT = 1080;
+constexpr int BUFFER_SIZE = BUFFER_WIDTH * BUFFER_HEIGHT;
+int baseFPS = 100;
 Vector3 sunDirection = Vector3Normalize((Vector3){ 0.8f, 0.2f, 0.2f });
 Color SKYCOLOR = SKYBLUE;
 float sunDirSX = copysignf(1.0f, sunDirection.x);
@@ -42,13 +46,14 @@ struct Hit {
 };
 class App {
     public:
+    int prevFPS = baseFPS;
     Camera camera;
     Matrix matProj;
     Image imageBuffer;
     Texture displayBuffer;
     Vector3 *directionStorage;
     World *world;
-    Hit hits[1920*1080];
+    Hit hits[BUFFER_SIZE];
     int *stepStorage;
     int *oldStep;
     float *oldDistance;
@@ -66,11 +71,11 @@ class App {
         imageBuffer = GenImageColor(width,height,BLACK);
         ImageFormat(&imageBuffer,PIXELFORMAT_UNCOMPRESSED_R8G8B8);
         displayBuffer = LoadTextureFromImage(imageBuffer);
-        directionStorage = (Vector3*)MemAlloc(width*height*sizeof(Vector3));
-        stepStorage = (int*)MemAlloc(width*height*sizeof(int));
-        oldDistance = (float*)MemAlloc(width*height*sizeof(float));
-        oldStep = (int*)MemAlloc(width*height*sizeof(int));
-        for (int i = 0; i < width*height; i++) {
+        directionStorage = (Vector3*)MemAlloc(BUFFER_SIZE*sizeof(Vector3));
+        stepStorage = (int*)MemAlloc(BUFFER_SIZE*sizeof(int));
+        oldDistance = (float*)MemAlloc(BUFFER_SIZE*sizeof(float));
+        oldStep = (int*)MemAlloc(BUFFER_SIZE*sizeof(int));
+        for (int i = 0; i < BUFFER_SIZE; i++) {
             oldStep[i] = 0;
             oldDistance[i] = 0;
         }
@@ -82,7 +87,7 @@ class App {
         const Color colors[10] = {SKYBLUE,GREEN,{uint8_t(GREEN.r*0.9),uint8_t(GREEN.g*0.9),uint8_t(GREEN.b*0.9),255},BROWN,DARKGREEN,GRAY,YELLOW,BLUE};
         
         auto totalStart = Clock::now();
-        Vector3*ids = (Vector3*)MemAlloc(width*height*sizeof(Vector3));
+        Vector3*ids = (Vector3*)MemAlloc(BUFFER_SIZE*sizeof(Vector3));
                 
         while (!WindowShouldClose()) {
             auto loopStart = Clock::now();
@@ -104,7 +109,7 @@ class App {
                         GetScreenToWorldRay8((float)x, (float)y, width, height, viewInv, xs, ys, zs);
                         for (int i = 0; i < 8; i++) {
                             int px = x + i;
-                            directionStorage[px + y * width] = { xs[i], ys[i], zs[i] };
+                            directionStorage[px * BUFFER_HEIGHT + y] = { xs[i], ys[i], zs[i] };
                         }
                     }
 
@@ -113,7 +118,7 @@ class App {
                         GetScreenToWorldRay8((float)tailX, (float)y, width, height, viewInv, xs, ys, zs);
                         for (int i = 0; i < 8; i++) {
                             int px = tailX + i;
-                            directionStorage[px + y * width] = { xs[i], ys[i], zs[i] };
+                            directionStorage[px * BUFFER_HEIGHT + y] = { xs[i], ys[i], zs[i] };
                         }
                     }
                 }
@@ -123,7 +128,7 @@ class App {
 
                 auto lowrenderStart = Clock::now();
                 if (frame%2==0) {
-                    std::fill(oldDistance, oldDistance + width * height, 0.0f);
+                    std::fill(oldDistance, oldDistance + BUFFER_SIZE, 0.0f);
                     #pragma omp parallel for collapse(2)
                     for (int by = 0; by < height / LOW_SCALE; ++by) {
                         for (int bx = 0; bx < width / LOW_SCALE; ++bx) {
@@ -131,10 +136,10 @@ class App {
                             const int baseX = bx * LOW_SCALE;
                             const int baseY = by * LOW_SCALE;
 
-                            const Vector3 d00 = directionStorage[(baseX + 0) + (baseY + 0) * width];
-                            const Vector3 d30 = directionStorage[(baseX + 3) + (baseY + 0) * width];
-                            const Vector3 d03 = directionStorage[(baseX + 0) + (baseY + 3) * width];
-                            const Vector3 d33 = directionStorage[(baseX + 3) + (baseY + 3) * width];
+                            const Vector3 d00 = directionStorage[(baseX + 0) * BUFFER_HEIGHT + (baseY + 0)];
+                            const Vector3 d30 = directionStorage[(baseX + 3) * BUFFER_HEIGHT + (baseY + 0)];
+                            const Vector3 d03 = directionStorage[(baseX + 0) * BUFFER_HEIGHT + (baseY + 3)];
+                            const Vector3 d33 = directionStorage[(baseX + 3) * BUFFER_HEIGHT + (baseY + 3)];
                             Vector3 direction = {
                                 d00.x + d30.x + d03.x + d33.x,
                                 d00.y + d30.y + d03.y + d33.y,
@@ -195,7 +200,7 @@ class App {
                             const float seedT = std::max(0.0f, t - 0.25f);
                             for (int dy = 0; dy < LOW_SCALE; ++dy) {
                                 for (int dx = 0; dx < LOW_SCALE; ++dx) {
-                                    oldDistance[(baseX + dx) + (baseY + dy) * width] = seedT;
+                                    oldDistance[(baseX + dx) * BUFFER_HEIGHT + (baseY + dy)] = seedT;
                                 }
                             }
                         }
@@ -209,7 +214,7 @@ class App {
                 for (int y = 0; y < height; ++y) {
                     for (int x = 0; x < width; ++x) {
                         int idx = (y * imageBuffer.width + x) * 3;
-                        int pixelIndex = x + y * width;
+                        int pixelIndex = x * BUFFER_HEIGHT + y;
 
                         if ((x + y + frame) % 2 == 0) continue;
                         hits[pixelIndex].viable = false;
@@ -320,8 +325,8 @@ class App {
                 auto lightStart = Clock::now();
                 int r = 0;
                 for (int x = 0; x < width; x++) {
-                    for (int y = 0; y < width; y++) {
-                        int pixelIndex = y * imageBuffer.width + x;
+                    for (int y = 0; y < height; y++) {
+                        int pixelIndex = x * BUFFER_HEIGHT + y;
                         if (!hits[pixelIndex].viable) continue;
                         
                         int origVoxelX = (int)hits[pixelIndex].x;
@@ -358,11 +363,11 @@ class App {
                 }
                 #pragma omp parallel for collapse(2)
                 for (int x = 0; x < width; x++) {
-                    for (int y = 0; y < width; y++) {
-                        int pixelIndex = y * imageBuffer.width + x;
+                    for (int y = 0; y < height; y++) {
+                        int pixelIndex = x * BUFFER_HEIGHT + y;
                         int idx = (y * imageBuffer.width + x) * 3;
                         if (!hits[pixelIndex].viable) continue;
-                        uint8_t type = hits[y * imageBuffer.width + x].type;
+                        uint8_t type = hits[pixelIndex].type;
                         float ambienceEffect = 0.36;
                         float strengthR = 1.0f-ambienceEffect+(float(SKYCOLOR.r)/255.0f)*ambienceEffect;
                         float strengthG = 1.0f-ambienceEffect+(float(SKYCOLOR.g)/255.0f)*ambienceEffect;
@@ -506,7 +511,7 @@ class App {
                         }
                         
                         if (voxelMetaData[type].reflective) {
-                            //TBD
+                            
                         }
 
                         ((unsigned char *)imageBuffer.data)[idx] = colors[type].r * strengthR;
@@ -525,6 +530,7 @@ class App {
                 UpdateCamera(&camera, CAMERA_FREE);
                     
                 DrawFPS(0, 0);
+                prevFPS = GetFPS();
                 EndDrawing();
                 auto loopEnd = Clock::now();
                 
