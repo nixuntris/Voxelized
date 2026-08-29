@@ -47,7 +47,7 @@ class App {
     Image imageBuffer;
     Texture displayBuffer;
     Vector3 *directionStorage;
-    World world;
+    World *world;
     Hit hits[width*height];
     int *stepStorage;
     int *oldStep;
@@ -56,6 +56,7 @@ class App {
     std::thread worker;
     App() {
         InitWindow(width*SCALE,height*SCALE,"Voxelized");
+        std::cout<<LOD4_START<<" "<<LOD8_START<<" "<<LOD16_START<<" "<<LOD32_START<<"\n";
         camera.position = (Vector3){ WORLD_WIDTH/2, 384, WORLD_DEPTH/2 };
         camera.target = (Vector3){ 0.0f, 2.0f, 0.0f };
         camera.up = (Vector3){ 0.0f, 1.0f, 0.0f };
@@ -75,7 +76,8 @@ class App {
             oldDistance[i] = 0;
         }
         worker = std::thread([=]() {
-            world.Init(camera.position);
+            world = new World;
+            world->Init(camera.position);
             worldFinished.store(true);
         });
         DisableCursor();
@@ -177,7 +179,7 @@ class App {
                                 const int ix = (int)voxelX;
                                 const int iy = (int)voxelY;
                                 const int iz = (int)voxelZ;
-                                TraversalChunk &chunk = world.traversalChunks[ix >> 5][iy >> 5][iz >> 5];
+                                TraversalChunk &chunk = world->traversalChunks[ix >> 5][iy >> 5][iz >> 5];
                                 const int lx = ix & 31;
                                 const int ly = iy & 31;
                                 const int lz = iz & 31;
@@ -248,20 +250,20 @@ class App {
                             int cx = voxelX / 32;
                             int cy = voxelY / 32;
                             int cz = voxelZ / 32;
-                            if (world.voxelChunks[cx][cy][cz].containsBlocks) {
+                            if (world->voxelChunks[cx][cy][cz].containsBlocks) {
                                 int lx = int(voxelX) % 32;
                                 int ly = int(voxelY) % 32;
                                 int lz = int(voxelZ) % 32;
                                 int index = lx * 32 * 32 + ly * 32 + lz;
                                 
-                                if (world.traversalChunks[cx][cy][cz].occupancy[index >> 6] & (1ull << (index & 63))) {
+                                if (world->traversalChunks[cx][cy][cz].occupancy[index >> 6] & (1ull << (index & 63))) {
                                     uint8_t type;
-                                    if (world.voxelChunks[cx][cy][cz].palletized==0) {
-                                        int lod = world.voxelChunks[cx][cy][cz].lod; 
-                                        type = world.voxelChunks[cx][cy][cz].voxels[IDX(lx/lod,ly/lod,lz/lod,world.voxelChunks[cx][cy][cz].size)];
+                                    if (world->voxelChunks[cx][cy][cz].palletized==0) {
+                                        int lod = world->voxelChunks[cx][cy][cz].lod; 
+                                        type = world->voxelChunks[cx][cy][cz].voxels[IDX(lx/lod,ly/lod,lz/lod,world->voxelChunks[cx][cy][cz].size)];
                                         
                                     }
-                                    else type = world.voxelChunks[cx][cy][cz].palletized;
+                                    else type = world->voxelChunks[cx][cy][cz].palletized;
                                     hits[pixelIndex].viable = true;
                                     hits[pixelIndex].type = type;
                                     hits[pixelIndex].x = voxelX;
@@ -275,7 +277,7 @@ class App {
                             }
 
                             int ix = (int)voxelX, iy = (int)voxelY, iz = (int)voxelZ;
-                            TraversalChunk &chunk = world.traversalChunks[ix >> 5][iy >> 5][iz >> 5];
+                            TraversalChunk &chunk = world->traversalChunks[ix >> 5][iy >> 5][iz >> 5];
                             int lx = ix & 31, ly = iy & 31, lz = iz & 31;
                             
                             float jump = std::max({
@@ -337,9 +339,9 @@ class App {
                         int dx = origVoxelX >> 5;
                         int dy = origVoxelY >> 5;
                         int dz = origVoxelZ >> 5;
-                        if (!world.voxelChunks[dx][dy][dz].containsLight) {
+                        if (!world->voxelChunks[dx][dy][dz].containsLight) {
                             ids[r]= {float(dx),float(dy),float(dz)};
-                            world.voxelChunks[dx][dy][dz].containsLight = true;
+                            world->voxelChunks[dx][dy][dz].containsLight = true;
                             r+=1;
                         }
                         
@@ -351,14 +353,14 @@ class App {
                     int dy = ids[t].y;
                     int dz = ids[t].z;
                     
-                    int size = 32/world.traversalChunks[dx][dy][dz].buildID;
-                    world.voxelChunks[dx][dy][dz].voxelLightValueR = (uint8_t*)MemAlloc(size*size*size); 
-                    world.voxelChunks[dx][dy][dz].voxelLightValueG = (uint8_t*)MemAlloc(size*size*size); 
-                    world.voxelChunks[dx][dy][dz].voxelLightValueB = (uint8_t*)MemAlloc(size*size*size); 
+                    int size = 32/world->traversalChunks[dx][dy][dz].buildID;
+                    world->voxelChunks[dx][dy][dz].voxelLightValueR = (uint8_t*)MemAlloc(size*size*size); 
+                    world->voxelChunks[dx][dy][dz].voxelLightValueG = (uint8_t*)MemAlloc(size*size*size); 
+                    world->voxelChunks[dx][dy][dz].voxelLightValueB = (uint8_t*)MemAlloc(size*size*size); 
                     for (int i = 0; i < size*size*size; i++) {
-                        world.voxelChunks[dx][dy][dz].voxelLightValueR[i] = 0;
-                        world.voxelChunks[dx][dy][dz].voxelLightValueG[i] = 0;
-                        world.voxelChunks[dx][dy][dz].voxelLightValueB[i] = 0;
+                        world->voxelChunks[dx][dy][dz].voxelLightValueR[i] = 0;
+                        world->voxelChunks[dx][dy][dz].voxelLightValueG[i] = 0;
+                        world->voxelChunks[dx][dy][dz].voxelLightValueB[i] = 0;
                     }
                     
 
@@ -381,13 +383,13 @@ class App {
                         int dy = origVoxelY >> 5;
                         int dz = origVoxelZ >> 5;
                         
-                        int origLod = world.voxelChunks[dx][dy][dz].lod;
-                        int origSize = world.voxelChunks[dx][dy][dz].size;
+                        int origLod = world->voxelChunks[dx][dy][dz].lod;
+                        int origSize = world->voxelChunks[dx][dy][dz].size;
                         int id = IDX((origVoxelX % 32) / origLod, (origVoxelY % 32) / origLod, (origVoxelZ % 32) / origLod, origSize);
                         
-                        uint8_t lightValR = world.voxelChunks[dx][dy][dz].voxelLightValueR[id];
-                        uint8_t lightValG = world.voxelChunks[dx][dy][dz].voxelLightValueG[id];
-                        uint8_t lightValB = world.voxelChunks[dx][dy][dz].voxelLightValueB[id];
+                        uint8_t lightValR = world->voxelChunks[dx][dy][dz].voxelLightValueR[id];
+                        uint8_t lightValG = world->voxelChunks[dx][dy][dz].voxelLightValueG[id];
+                        uint8_t lightValB = world->voxelChunks[dx][dy][dz].voxelLightValueB[id];
 
                         if (lightValR != 0) {
                             if (lightValR != 1) {
@@ -415,12 +417,9 @@ class App {
                                     int dy = origVoxelY>>5;
                                     int dz = origVoxelZ>>5;
                                     int id = IDX((origVoxelX % 32) / origLod, (origVoxelY % 32) / origLod, (origVoxelZ % 32) / origLod, origSize);
-                                    world.voxelChunks[dx][dy][dz]
-                                        .voxelLightValueR[id] = 255;
-                                    world.voxelChunks[dx][dy][dz]
-                                        .voxelLightValueG[id] = 255;
-                                    world.voxelChunks[dx][dy][dz]
-                                        .voxelLightValueB[id] = 255;
+                                    world->voxelChunks[dx][dy][dz].voxelLightValueR[id] = 255;
+                                    world->voxelChunks[dx][dy][dz].voxelLightValueG[id] = 255;
+                                    world->voxelChunks[dx][dy][dz].voxelLightValueB[id] = 255;
                                     
                                     break;
                                 }
@@ -434,16 +433,16 @@ class App {
                                 int lx = ix & 31;
                                 int ly = iy & 31;
                                 int lz = iz & 31;
-                                if (world.voxelChunks[cx][cy][cz].containsBlocks) {
+                                if (world->voxelChunks[cx][cy][cz].containsBlocks) {
                                     int index = lx * 32 * 32 + ly * 32 + lz;
-                                    if (world.traversalChunks[cx][cy][cz].occupancy[index >> 6] & (1ull << (index & 63))) {
+                                    if (world->traversalChunks[cx][cy][cz].occupancy[index >> 6] & (1ull << (index & 63))) {
                                         uint8_t typer;
-                                        if (world.voxelChunks[cx][cy][cz].palletized==0) {
-                                            int lod = world.voxelChunks[cx][cy][cz].lod; 
-                                            typer = world.voxelChunks[cx][cy][cz].voxels[IDX(lx/lod,ly/lod,lz/lod,world.voxelChunks[cx][cy][cz].size)];
+                                        if (world->voxelChunks[cx][cy][cz].palletized==0) {
+                                            int lod = world->voxelChunks[cx][cy][cz].lod; 
+                                            typer = world->voxelChunks[cx][cy][cz].voxels[IDX(lx/lod,ly/lod,lz/lod,world->voxelChunks[cx][cy][cz].size)];
                                             
                                         }
-                                        else typer = world.voxelChunks[cx][cy][cz].palletized;
+                                        else typer = world->voxelChunks[cx][cy][cz].palletized;
                                         if (voxelMetaData[typer].translucent) {
                                             strengthR *= voxelMetaData[typer].lightAbsorbR; 
                                             strengthG *= voxelMetaData[typer].lightAbsorbG; 
@@ -460,9 +459,9 @@ class App {
                                             int dy = origVoxelY>>5;
                                             int dz = origVoxelZ>>5;
                                             int id = IDX((origVoxelX % 32) / origLod, (origVoxelY % 32) / origLod, (origVoxelZ % 32) / origLod, origSize);
-                                            world.voxelChunks[dx][dy][dz].voxelLightValueR[id] = cachedValR;
-                                            world.voxelChunks[dx][dy][dz].voxelLightValueG[id] = cachedValG;
-                                            world.voxelChunks[dx][dy][dz].voxelLightValueB[id] = cachedValB;
+                                            world->voxelChunks[dx][dy][dz].voxelLightValueR[id] = cachedValR;
+                                            world->voxelChunks[dx][dy][dz].voxelLightValueG[id] = cachedValG;
+                                            world->voxelChunks[dx][dy][dz].voxelLightValueB[id] = cachedValB;
 
                                             break;    
                                         }
@@ -476,7 +475,7 @@ class App {
                                 else if (shadowT > LOD4_START) lod = 4;
                                 else if (shadowT > LOD2_START) lod = 2;
                                 else shadowT = 1;
-                                TraversalChunk& chunk = world.traversalChunks[cx][cy][cz];
+                                TraversalChunk& chunk = world->traversalChunks[cx][cy][cz];
                                 float jump = std::max({
                                     STEP(chunk.distanceToClosestVoxel,  std::max(32,lod)),
                                     STEP(chunk.distance16[IDX(lx >> 4, ly >> 4, lz >> 4, 2)], std::max(16,lod)),

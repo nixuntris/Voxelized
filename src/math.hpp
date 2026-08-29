@@ -236,7 +236,6 @@ inline uint8_t* GenImagePerlinNoiseOptimized(int width, int height, int offsetX,
     uint8_t *pixels = (uint8_t*)RL_MALLOC(width*height*sizeof(uint8_t));
 
     float aspectRatio = (float)width/(float)height;
-#pragma omp parallel for collapse(2)
     for (int y = 0; y < height; y+=2)
     {
         for (int x = 0; x < width; x+=2)
