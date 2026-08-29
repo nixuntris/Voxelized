@@ -59,6 +59,7 @@ class App {
     float *oldDistance;
     std::atomic<int> worldFinished{0};
     std::thread worker;
+    bool cameraMoved = true;
     App() {
         InitWindow(width*SCALE,height*SCALE,"Voxelized");
         std::cout<<LOD4_START<<" "<<LOD8_START<<" "<<LOD16_START<<" "<<LOD32_START<<"\n";
@@ -99,29 +100,33 @@ class App {
 
             frame++;
             if (worldFinished==2) {
-                 auto dirStart = Clock::now();
-                #pragma omp parallel for
-                for (int y = 0; y < height; y++) {
-                    alignas(32) float xs[8], ys[8], zs[8];
+                
+                auto dirStart = Clock::now();
+                if (cameraMoved) {
+                    #pragma omp parallel for
+                    for (int y = 0; y < height; y++) {
+                        alignas(32) float xs[8], ys[8], zs[8];
 
-                    int x = 0;
-                    for (; x + 7 < width; x += 8) {
-                        GetScreenToWorldRay8((float)x, (float)y, width, height, viewInv, xs, ys, zs);
-                        for (int i = 0; i < 8; i++) {
-                            int px = x + i;
-                            directionStorage[px * BUFFER_HEIGHT + y] = { xs[i], ys[i], zs[i] };
+                        int x = 0;
+                        for (; x + 7 < width; x += 8) {
+                            GetScreenToWorldRay8((float)x, (float)y, width, height, viewInv, xs, ys, zs);
+                            for (int i = 0; i < 8; i++) {
+                                int px = x + i;
+                                directionStorage[px * BUFFER_HEIGHT + y] = { xs[i], ys[i], zs[i] };
+                            }
                         }
-                    }
 
-                    if (x < width) {
-                        const int tailX = width - 8;
-                        GetScreenToWorldRay8((float)tailX, (float)y, width, height, viewInv, xs, ys, zs);
-                        for (int i = 0; i < 8; i++) {
-                            int px = tailX + i;
-                            directionStorage[px * BUFFER_HEIGHT + y] = { xs[i], ys[i], zs[i] };
+                        if (x < width) {
+                            const int tailX = width - 8;
+                            GetScreenToWorldRay8((float)tailX, (float)y, width, height, viewInv, xs, ys, zs);
+                            for (int i = 0; i < 8; i++) {
+                                int px = tailX + i;
+                                directionStorage[px * BUFFER_HEIGHT + y] = { xs[i], ys[i], zs[i] };
+                            }
                         }
                     }
                 }
+                
                 auto dirEnd = Clock::now();
                 constexpr int LOW_SCALE = 4;
                 constexpr float CONE_GUARD = 1.5f;
@@ -211,8 +216,8 @@ class App {
                 
                 auto renderStart = Clock::now();
                 #pragma omp parallel for collapse(2)
-                for (int y = 0; y < height; ++y) {
-                    for (int x = 0; x < width; ++x) {
+                for (int x = 0; x < width; ++x) {
+                    for (int y = 0; y < height; ++y) {
                         int idx = (y * imageBuffer.width + x) * 3;
                         int pixelIndex = x * BUFFER_HEIGHT + y;
 
@@ -327,6 +332,7 @@ class App {
                 for (int x = 0; x < width; x++) {
                     for (int y = 0; y < height; y++) {
                         int pixelIndex = x * BUFFER_HEIGHT + y;
+                        if ((x+y+frame)%2==0) continue;
                         if (!hits[pixelIndex].viable) continue;
                         
                         int origVoxelX = (int)hits[pixelIndex].x;
@@ -367,6 +373,7 @@ class App {
                         int pixelIndex = x * BUFFER_HEIGHT + y;
                         int idx = (y * imageBuffer.width + x) * 3;
                         if (!hits[pixelIndex].viable) continue;
+                        if ((x + y + frame) % 2 == 0) continue;
                         uint8_t type = hits[pixelIndex].type;
                         float ambienceEffect = 0.36;
                         float strengthR = 1.0f-ambienceEffect+(float(SKYCOLOR.r)/255.0f)*ambienceEffect;
@@ -527,8 +534,16 @@ class App {
                     (Rectangle){0, 0, width, height},
                     (Rectangle){0, 0, width*SCALE, height*SCALE},
                     (Vector2){0, 0}, 0, WHITE);
+                Vector3 oldCameraPos = camera.position;
+                Vector3 oldCameraTarget = camera.target;
                 UpdateCamera(&camera, CAMERA_FREE);
-                    
+                cameraMoved = false;
+                if (
+                oldCameraTarget.x!=camera.target.x ||
+                oldCameraTarget.y!=camera.target.y || 
+                oldCameraTarget.z!=camera.target.z) {
+                    cameraMoved = true;
+                }
                 DrawFPS(0, 0);
                 prevFPS = GetFPS();
                 EndDrawing();
@@ -541,23 +556,33 @@ class App {
                 double lightTime = ms(lightStart, lightEnd);
                 
                 double lowrenderTime = ms(lowrenderStart, lowrenderEnd);
+                std::cout
+                << "Dir: "       << dirTime       << " ms | "
+                << "Render: "    << renderTime    << " ms | "
+                << "LowRender: " << lowrenderTime << " ms | "
+                << "Light: "     << lightTime     << " ms | "
+                << "Loop: "      << loopTime      << " ms | "
+                << "Total: "     << totalTime     << " ms\n";
                 if (IsKeyDown(KEY_ONE)) {
                                         
                     SCALE = 1;
                     width = 800/SCALE;
                     height = 800/SCALE;
+                    cameraMoved = true;
                 }
                 if (IsKeyDown(KEY_TWO)) {
                                         
                     SCALE = 1.3;
                     width = 800/SCALE;
                     height = 800/SCALE;
+                    cameraMoved = true;
                 }
                 if (IsKeyDown(KEY_THREE)) {
                                         
                     SCALE = 1.5;
                     width = 800/SCALE;
                     height = 800/SCALE;
+                    cameraMoved = true;
                 }
             }
             else if (worldFinished==1) {
