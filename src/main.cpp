@@ -41,9 +41,10 @@ bool has_avx2()
 #endif
 }
 struct Hit {
-    int x,y,z;
+    float x,y,z;
     uint8_t type;
     bool viable;
+    Vector3 direction;
 };
 
 class App {
@@ -133,7 +134,7 @@ class App {
                     const int baseX = bx * LOW_SCALE;
                     const int baseY = by * LOW_SCALE;
 
-                const Vector3 d00 = directionStorage[(baseX + 0) * BUFFER_HEIGHT + (baseY + 0)];
+                    const Vector3 d00 = directionStorage[(baseX + 0) * BUFFER_HEIGHT + (baseY + 0)];
                     const Vector3 d30 = directionStorage[(baseX + 3) * BUFFER_HEIGHT + (baseY + 0)];
                     const Vector3 d03 = directionStorage[(baseX + 0) * BUFFER_HEIGHT + (baseY + 3)];
                     const Vector3 d33 = directionStorage[(baseX + 3) * BUFFER_HEIGHT + (baseY + 3)];
@@ -143,34 +144,33 @@ class App {
                         d00.z + d30.z + d03.z + d33.z
                     };
 
-                float length = sqrtf(direction.x*direction.x + direction.y*direction.y + direction.z*direction.z);
+                    float length = sqrtf(direction.x*direction.x + direction.y*direction.y + direction.z*direction.z);
                     if (length != 0.0f)
                     {
                         float ilength = 1.0f/length;
-
-                    direction.x *= ilength;
+                        direction.x *= ilength;
                         direction.y *= ilength;
                         direction.z *= ilength;
                     }
 
-                const float coneSlope = sqrtf(std::max({
+                    const float coneSlope = sqrtf(std::max({
                         DIRECTION_DELTA(d00), DIRECTION_DELTA(d30),
                         DIRECTION_DELTA(d03), DIRECTION_DELTA(d33)
                     }));
 
-                float t = 0.0f;
+                    float t = 0.0f;
 
-                while (t < RENDERDISTANCE) {
+                    while (t < RENDERDISTANCE) {
                         const float voxelX = camera.position.x + direction.x * t;
                         const float voxelY = camera.position.y + direction.y * t;
                         const float voxelZ = camera.position.z + direction.z * t;
 
-                    if (voxelX < 0.0f || voxelY < 0.0f || voxelZ < 0.0f ||
+                        if (voxelX < 0.0f || voxelY < 0.0f || voxelZ < 0.0f ||
                             voxelX >= WORLD_WIDTH || voxelY >= WORLD_HEIGHT || voxelZ >= WORLD_DEPTH) {
-                            break;
+                               break;
                         }
 
-                    const int ix = (int)voxelX;
+                        const int ix = (int)voxelX;
                         const int iy = (int)voxelY;
                         const int iz = (int)voxelZ;
                         TraversalChunk &chunk = world->traversalChunks[ix >> 5][iy >> 5][iz >> 5];
@@ -178,7 +178,7 @@ class App {
                         const int ly = iy & 31;
                         const int lz = iz & 31;
 
-                    const float jump = std::max({
+                        const float jump = std::max({
                             STEP(chunk.distanceToClosestVoxel, 32.0f),
                             STEP(chunk.distance16[IDX(lx >> 4,ly >> 4,lz >> 4,2)], 16.0f),
                             STEP(chunk.GetDistance8(IDX(lx >> 3,ly >> 3,lz >> 3,4)), 8.0f),
@@ -188,13 +188,13 @@ class App {
                         const float remainingSafe = jump - coneRadius;
                         if (remainingSafe <= 0.0f) break;
 
-                    const float advance = remainingSafe / (1.0f + coneSlope);
+                        const float advance = remainingSafe / (1.0f + coneSlope);
                         if (advance <= 1.0f) break;
                         t += advance;
                         if (t>LOD2_START) t += advance*0.5;
                     }
 
-                const float seedT = std::max(0.0f, t - 0.25f);
+                    const float seedT = std::max(0.0f, t - 0.25f);
                     for (int dy = 0; dy < LOW_SCALE; ++dy) {
                         for (int dx = 0; dx < LOW_SCALE; ++dx) {
                             oldDistance[(baseX + dx) * BUFFER_HEIGHT + (baseY + dy)] = seedT;
@@ -213,13 +213,13 @@ class App {
                 int idx = (y * imageBuffer.width + x) * 3;
                 int pixelIndex = x * BUFFER_HEIGHT + y;
 
-            hits[pixelIndex].viable = false;
+                hits[pixelIndex].viable = false;
                 if ((x + y + frame) % 2 == 0) continue;
                 ((unsigned char *)imageBuffer.data)[idx] = SKYCOLOR.r;
                 ((unsigned char *)imageBuffer.data)[idx + 1] = SKYCOLOR.g;
                 ((unsigned char *)imageBuffer.data)[idx + 2] = SKYCOLOR.b;
 
-            Vector3 direction = directionStorage[pixelIndex];
+                Vector3 direction = directionStorage[pixelIndex];
                 float t = oldDistance[pixelIndex];
                 float sx = copysignf(1.0f, direction.x);
                 float sy = copysignf(1.0f, direction.y);
@@ -230,7 +230,7 @@ class App {
                     float voxelY = camera.position.y + direction.y * t;
                     float voxelZ = camera.position.z + direction.z * t;
 
-                if (voxelX < 0.0f || voxelY < 0.0f || voxelZ < 0.0f ||
+                   if (voxelX < 0.0f || voxelY < 0.0f || voxelZ < 0.0f ||
                         voxelX >= WORLD_WIDTH || voxelY >= WORLD_HEIGHT || voxelZ >= WORLD_DEPTH) {
                         break;
                     }
@@ -261,14 +261,14 @@ class App {
                             hits[pixelIndex].x = voxelX;
                             hits[pixelIndex].y = voxelY;
                             hits[pixelIndex].z = voxelZ;
-                            
+                            hits[pixelIndex].direction = direction;
                             break;
                             
                         }
                         
                     }
 
-                int ix = (int)voxelX, iy = (int)voxelY, iz = (int)voxelZ;
+                    int ix = (int)voxelX, iy = (int)voxelY, iz = (int)voxelZ;
                     TraversalChunk &chunk = world->traversalChunks[ix >> 5][iy >> 5][iz >> 5];
                     int lx = ix & 31, ly = iy & 31, lz = iz & 31;
                     
@@ -280,7 +280,7 @@ class App {
                     });
                                         
 
-                if (jump > 0.0f) {
+                    if (jump > 0.0f) {
                         t+=jump;
                     }
                     else {
@@ -299,15 +299,15 @@ class App {
                             cellSize = 4;
                         }
 
-                    int bx = ix & ~(cellSize - 1);
+                        int bx = ix & ~(cellSize - 1);
                         int by = iy & ~(cellSize - 1);
                         int bz = iz & ~(cellSize - 1);
 
-                    float ox = (sx + 1.0f) * 0.5f * cellSize;
+                        float ox = (sx + 1.0f) * 0.5f * cellSize;
                         float oy = (sy + 1.0f) * 0.5f * cellSize;
                         float oz = (sz + 1.0f) * 0.5f * cellSize;
 
-                    float tx = (bx + ox - voxelX) * invDirLocal.x;
+                        float tx = (bx + ox - voxelX) * invDirLocal.x;
                         float ty = (by + oy - voxelY) * invDirLocal.y;
                         float tz = (bz + oz - voxelZ) * invDirLocal.z;
                         t += std::min({tx, ty, tz}) + 0.01f;
@@ -389,7 +389,7 @@ class App {
                 uint8_t lightValG = world->voxelChunks[dx][dy][dz].voxelLightValueG[id];
                 uint8_t lightValB = world->voxelChunks[dx][dy][dz].voxelLightValueB[id];
 
-            if (lightValR != 0 || lightValB != 0|| lightValG !=0 ) {
+                if (lightValR != 0 || lightValB != 0|| lightValG !=0 ) {
                     if (lightValR != 1) {
                         strengthR = float(lightValR - 1) / 253.0f;
                         strengthG = float(lightValG - 1) / 253.0f;
@@ -422,7 +422,7 @@ class App {
                             break;
                         }
 
-                    int ix = (int)shadowX;
+                        int ix = (int)shadowX;
                         int iy = (int)shadowY;
                         int iz = (int)shadowZ;
                         int cx = ix >> 5;
@@ -431,6 +431,7 @@ class App {
                         int lx = ix & 31;
                         int ly = iy & 31;
                         int lz = iz & 31;
+                        
                         if (world->voxelChunks[cx][cy][cz].containsBlocks) {
                             int lodr = world->voxelChunks[cx][cy][cz].lod; 
                             int lodIndex = IDX(lx/lodr,ly/lodr,lz/lodr,world->voxelChunks[cx][cy][cz].size);
@@ -446,7 +447,7 @@ class App {
                                     strengthG *= voxelMetaData[typer].lightAbsorbG; 
                                     strengthB *= voxelMetaData[typer].lightAbsorbB; 
                                 }
-                                else {
+                                else if (typer!=WATER) {
                                     strengthR *= voxelMetaData[typer].lightAbsorbR;
                                     strengthG *= voxelMetaData[typer].lightAbsorbG;
                                     strengthB *= voxelMetaData[typer].lightAbsorbB;
@@ -461,13 +462,13 @@ class App {
                                     world->voxelChunks[dx][dy][dz].voxelLightValueG[id] = cachedValG;
                                     world->voxelChunks[dx][dy][dz].voxelLightValueB[id] = cachedValB;
 
-                                break;    
+                                    break;    
                                 }
                                 
                             }
                         }
-
-                    int lod = 1;
+                        
+                        int lod = 1;
                         if (shadowT > LOD16_START) lod = 16;
                         else if (shadowT > LOD8_START) lod = 8;
                         else if (shadowT > LOD4_START) lod = 4;
@@ -507,17 +508,107 @@ class App {
                             shadowY += sunDirection.y * step;
                             shadowZ += sunDirection.z * step;
 
-                    }
+                        }
                     }
                 }
                 
+                Color colorToMix = SKYBLUE;
+                float mixStrength = 0;
+                
                 if (voxelMetaData[type].reflective) {
+                    mixStrength = 0.5f;                        
+                    int origVoxelX = (int)hits[pixelIndex].x;
+                    int origVoxelY = (int)hits[pixelIndex].y;
+                    int origVoxelZ = (int)hits[pixelIndex].z;
                     
+                    Vector3 direction = hits[pixelIndex].direction;
+                    Vector3 reflected = Vector3Normalize(Vector3Subtract(
+                        direction,
+                        Vector3Scale(
+                            {0.0f, 1.0f, 0.0f},
+                            2.0f * Vector3DotProduct(direction, {0.0f, 1.0f, 0.0f})
+                        )
+                    ));
+                    float voxelX = hits[pixelIndex].x+reflected.x*1.5;
+                    float voxelY = hits[pixelIndex].y+reflected.y*1.5;
+                    float voxelZ = hits[pixelIndex].z+reflected.z*1.5;
+                    float reflectionT = 0;
+                    while (reflectionT < 512) {
+                        if (voxelX < 0.0f || voxelY < 0.0f || voxelZ < 0.0f ||
+                            voxelX >= WORLD_WIDTH || voxelY >= WORLD_HEIGHT || voxelZ >= WORLD_DEPTH) {
+                            break;
+                        }
+                        int lod = 1;
+                        if (reflectionT > LOD16_START) lod = 16;
+                        else if (reflectionT > LOD8_START) lod = 8;
+                        else if (reflectionT > LOD4_START) lod = 4;
+                        else if (reflectionT > LOD2_START) lod = 2;
+                        int ix = (int)voxelX;
+                        int iy = (int)voxelY;
+                        int iz = (int)voxelZ;
+                        int cx = ix >> 5;
+                        int cy = iy >> 5;
+                        int cz = iz >> 5;
+                        int lx = ix & 31;
+                        int ly = iy & 31;
+                        int lz = iz & 31;
+                        TraversalChunk& chunk = world->traversalChunks[cx][cy][cz];
+                        
+                        if (world->voxelChunks[cx][cy][cz].containsBlocks) {
+                            int lodr = world->voxelChunks[cx][cy][cz].lod; 
+                            int lodIndex = IDX(lx/lodr,ly/lodr,lz/lodr,world->voxelChunks[cx][cy][cz].size);
+                            if (world->traversalChunks[cx][cy][cz].occupancy[lodIndex >> 6] & (1ull << (lodIndex & 63))) {
+                                uint8_t typer;
+                                if (world->voxelChunks[cx][cy][cz].palletized==0) {
+                                    typer = world->voxelChunks[cx][cy][cz].voxels[lodIndex];
+                                }
+                                else typer = world->voxelChunks[cx][cy][cz].palletized;
+                                mixStrength = 0.5f;
+                                float R = 0.5;
+                                float G = 0.5;
+                                float B = 0.5;
+                                
+                                if (world->voxelChunks[cx][cy][cz].containsLight) {
+                                    R = float(world->voxelChunks[dx][dy][dz].voxelLightValueR[lodIndex])/255.0f;
+                                    G = float(world->voxelChunks[dx][dy][dz].voxelLightValueG[lodIndex])/255.0f;
+                                    B = float(world->voxelChunks[dx][dy][dz].voxelLightValueB[lodIndex])/255.0f;
+                                }
+                                colorToMix = {uint8_t(colors[typer].r*R),uint8_t(colors[typer].g*G),uint8_t(colors[typer].b*B),255};
+                                break;
+                            }
+                        }
+                        float jump = std::max({
+                            STEP(chunk.distanceToClosestVoxel,  std::max(32,lod)),
+                            STEP(chunk.distance16[IDX(lx >> 4, ly >> 4, lz >> 4, 2)], std::max(16,lod)),
+                            STEP(chunk.GetDistance8(IDX(lx >> 3, ly >> 3, lz >> 3, 4)),  std::max(8,lod)),
+                            STEP(chunk.GetDistance4(IDX(lx >> 2, ly >> 2, lz >> 2, 8)),  std::max(4,lod))
+                        });
+                        jump = std::max(jump,1.0f);
+                        if (jump > 0.0f) {
+                            reflectionT += jump;
+                            voxelX += reflected.x * jump;
+                            voxelY += reflected.y * jump;
+                            voxelZ += reflected.z * jump;
+                        }
+                    
+                    }
                 }
+                float baseR = colors[type].r * strengthR;
+                float baseG = colors[type].g * strengthG;
+                float baseB = colors[type].b * strengthB;
 
-            ((unsigned char *)imageBuffer.data)[idx] = colors[type].r * strengthR;
-                ((unsigned char *)imageBuffer.data)[idx + 1] = colors[type].g * strengthG;
-                ((unsigned char *)imageBuffer.data)[idx + 2] = colors[type].b * strengthB;
+                float finalR = baseR * (1.0f - mixStrength)
+                            + colorToMix.r * mixStrength;
+
+                float finalG = baseG * (1.0f - mixStrength)
+                            + colorToMix.g * mixStrength;
+
+                float finalB = baseB * (1.0f - mixStrength)
+                            + colorToMix.b * mixStrength;
+
+                ((unsigned char*)imageBuffer.data)[idx] =Clamp(finalR, 0.0f, 255.0f);
+                ((unsigned char*)imageBuffer.data)[idx + 1] =Clamp(finalG, 0.0f, 255.0f);
+                ((unsigned char*)imageBuffer.data)[idx + 2] =Clamp(finalB, 0.0f, 255.0f);
             }
         }
         auto lightEnd = Clock::now();
