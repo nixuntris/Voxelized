@@ -27,6 +27,16 @@
                                                                   \
     _min + (int)(_r % _range);                                   \
 })
+#define FAST_RANDOM_3(x_, y_, frame_)                         \
+({                                                            \
+    uint32_t _h = (uint32_t)(x_) ^                            \
+                  ((uint32_t)(y_) * 0x9e3779b9u) ^            \
+                  ((uint32_t)(frame_) * 0x85ebca6bu);         \
+    _h ^= _h >> 16;                                           \
+    _h *= 0x45d9f3bu;                                        \
+    _h ^= _h >> 16;                                           \
+    _h % 3u;                                                  \
+})
 #define RAND01(s) (((s = s * 1664525u + 1013904223u) >> 8) * (1.0f / 16777215.0f))
 #define IDX(x, y, z, size) \
     ((int)(x) * (int)(size) * (int)(size) + \

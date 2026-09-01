@@ -41,9 +41,11 @@ bool has_avx2()
 #endif
 }
 struct Hit {
+    float t;
     float x,y,z;
     uint8_t type;
     bool viable;
+    bool traced;
     Vector3 direction;
 };
 
@@ -88,6 +90,9 @@ class App {
             oldStep[i] = 0;
             oldDistance[i] = 0;
         }
+        SCALE = 1.5;
+        width = 800/SCALE;
+        height = 800/SCALE;
         
     }
     void Render() {
@@ -167,7 +172,7 @@ class App {
 
                         if (voxelX < 0.0f || voxelY < 0.0f || voxelZ < 0.0f ||
                             voxelX >= WORLD_WIDTH || voxelY >= WORLD_HEIGHT || voxelZ >= WORLD_DEPTH) {
-                               break;
+                            break;
                         }
 
                         const int ix = (int)voxelX;
@@ -207,13 +212,16 @@ class App {
         auto lowrenderEnd = Clock::now();
         
         auto renderStart = Clock::now();
+        int actuallyTraced = 0;
+
         #pragma omp parallel for collapse(2)
-        for (int x = 0; x < width; ++x) {
-            for (int y = 0; y < height; ++y) {
+        for (int x = 0; x < width; x+=1) {
+            for (int y = 0; y < height; y+=1) {
                 int idx = (y * imageBuffer.width + x) * 3;
                 int pixelIndex = x * BUFFER_HEIGHT + y;
 
                 hits[pixelIndex].viable = false;
+                hits[pixelIndex].traced = false;
                 if ((x + y + frame) % 2 == 0) continue;
                 ((unsigned char *)imageBuffer.data)[idx] = SKYCOLOR.r;
                 ((unsigned char *)imageBuffer.data)[idx + 1] = SKYCOLOR.g;
@@ -225,6 +233,7 @@ class App {
                 float sy = copysignf(1.0f, direction.y);
                 float sz = copysignf(1.0f, direction.z);
                 Vector3 invDirLocal = {1/direction.x,1/direction.y,1/direction.z};
+                hits[pixelIndex].traced = true;
                 while (t < RENDERDISTANCE ) {
                     float voxelX = camera.position.x + direction.x * t;
                     float voxelY = camera.position.y + direction.y * t;
@@ -262,6 +271,7 @@ class App {
                             hits[pixelIndex].y = voxelY;
                             hits[pixelIndex].z = voxelZ;
                             hits[pixelIndex].direction = direction;
+                            hits[pixelIndex].t = t;
                             break;
                             
                         }
@@ -313,16 +323,17 @@ class App {
                         t += std::min({tx, ty, tz}) + 0.01f;
 
 
-                }                    
+                    }                    
                 }
                 oldDistance[pixelIndex] = t*0.9;
             }
         }
+        std::cout<<actuallyTraced<<"\n";
         auto renderEnd = Clock::now();
         auto lightStart = Clock::now();
         int r = 0;
-        for (int x = 0; x < width; x++) {
-            for (int y = 0; y < height; y++) {
+        for (int x = 0; x < width; x+=2) {
+            for (int y = 0; y < height; y+=2) {
                 int pixelIndex = x * BUFFER_HEIGHT + y;
                 if ((x+y+frame)%2==0) continue;
                 if (!hits[pixelIndex].viable) continue;
@@ -389,7 +400,7 @@ class App {
                 uint8_t lightValG = world->voxelChunks[dx][dy][dz].voxelLightValueG[id];
                 uint8_t lightValB = world->voxelChunks[dx][dy][dz].voxelLightValueB[id];
 
-                if (lightValR != 0 || lightValB != 0|| lightValG !=0 ) {
+                if (lightValR != 0 && lightValG != 0 && lightValB != 0) {
                     if (lightValR != 1) {
                         strengthR = float(lightValR - 1) / 253.0f;
                         strengthG = float(lightValG - 1) / 253.0f;
@@ -481,34 +492,13 @@ class App {
                             STEP(chunk.GetDistance8(IDX(lx >> 3, ly >> 3, lz >> 3, 4)),  std::max(8,lod)),
                             STEP(chunk.GetDistance4(IDX(lx >> 2, ly >> 2, lz >> 2, 8)),  std::max(4,lod))
                         });
-                        
+                        jump = std::max(jump,1.0f);
                         if (jump > 0.0f) {
                             shadowT += jump;
                             shadowX += sunDirection.x * jump;
                             shadowY += sunDirection.y * jump;
                             shadowZ += sunDirection.z * jump;
-                        } else {
-                            float sx = copysignf(1.0f, sunDirection.x);
-                            float sy = copysignf(1.0f, sunDirection.y);
-                            float sz = copysignf(1.0f, sunDirection.z);
-                            
-                            int bx = ix & ~(31);
-                            int by = iy & ~(31);
-                            int bz = iz & ~(31);
-                            
-                            float tx = (bx + (sx > 0 ? 32.0f : 0.0f) - shadowX) / sunDirection.x;
-                            float ty = (by + (sy > 0 ? 32.0f : 0.0f) - shadowY) / sunDirection.y;
-                            float tz = (bz + (sz > 0 ? 32.0f : 0.0f) - shadowZ) / sunDirection.z;
-                            
-                            float step = std::min({tx, ty, tz});
-                            if (step < 0.0001f) step = 1.0f;
-                            
-                            shadowT += step;
-                            shadowX += sunDirection.x * step;
-                            shadowY += sunDirection.y * step;
-                            shadowZ += sunDirection.z * step;
-
-                        }
+                        } 
                     }
                 }
                 
@@ -630,7 +620,7 @@ class App {
         int dvdY = 0;
         int dvdXChange = 1;
         int dvdYChange = 1;
-        
+        int choosenSize = 512;
         int gui = 0;
                
         while (!WindowShouldClose()) {
@@ -788,17 +778,18 @@ class App {
                     DrawText(text, x, y, 20, BLACK);
                     if (CheckCollisionRecs({x, y, 200.0f, 50.0f},{(float)GetMouseX(),(float)GetMouseY(),1,1})) {
                         DrawRectangle(x,y, 200.0f, 50.0f, {GRAY.r,GRAY.g,GRAY.b,50});
-                        WORLD_WIDTH = worldSize;
-                        WORLD_DEPTH = worldSize;
-                        
-                        camera.position = (Vector3){ (float)WORLD_WIDTH/2, 384, (float)WORLD_DEPTH/2 };
                         if (IsMouseButtonDown(0)) {
-                            worldFinished = 1;                     
-                            worker = std::thread([=]() {
-                                world->Init(camera.position,worldType);
-                                worldFinished.store(2);
-                            });
+                            WORLD_WIDTH = worldSize;
+                            WORLD_DEPTH = worldSize;
+                            
+                            camera.position = (Vector3){ (float)WORLD_WIDTH/2, 384, (float)WORLD_DEPTH/2 };
+                            
                         }
+                        
+                    }
+                    else if (WORLD_WIDTH == worldSize) {
+                        DrawRectangle(x,y, 200.0f, 50.0f, {GRAY.r,GRAY.g,GRAY.b,50});
+                        
                     }
                 };
                 auto WorldTypeButton = [&](float x, float y, WorldType type, const char* text) {
@@ -822,18 +813,30 @@ class App {
                         }
                     }
                 };
+                
+                DrawText("WORLD SIZE", 0, 65, 20, BLACK);
 
                 DrawText("WORLD TYPE", 250, 65, 20, BLACK);
 
                 WorldTypeButton(250, 100, WORLD_PLAINS,    "Plains");
                 WorldTypeButton(250, 160, WORLD_MOUNTAINS, "Mountains");
                 WorldTypeButton(250, 220, WORLD_DESERT,    "Desert");
-                WorldTypeButton(250, 280, WORLD_ISLANDS,   "Islands");
+                DrawRectangleLinesEx({0, 0, 200.0f, 50.0f}, 3, BLACK);
+                DrawText("Create World", 0, 0, 20, BLACK);
+                if (CheckCollisionRecs({0, 0, 200.0f, 50.0f},{(float)GetMouseX(),(float)GetMouseY(),1,1})) {
+                    DrawRectangle(0, 0, 200.0f, 50.0f, {GRAY.r,GRAY.g,GRAY.b,50});
+                        
+                    if (IsMouseButtonDown(0)) {
+                        worldFinished = 1;                     
+                        worker = std::thread([=]() {
+                            world->Init(camera.position,worldType);
+                            worldFinished.store(2);
+                        });
+                    }
+                }
                 Button(0,100,512,"512x512");
                 Button(0,160,1024,"1024x1024");
                 Button(0,220,2048,"2048x2048");
-                Button(0,280,3072,"3072x3072");
-                Button(0,340,4096,"4096x4096");
                 EndDrawing();
             }
             
