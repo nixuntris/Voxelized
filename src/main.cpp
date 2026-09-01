@@ -64,6 +64,7 @@ class App {
     bool cameraMoved = true;
     int frame = 0;
     Vector3*ids;
+    WorldType worldType = WORLD_PLAINS;
     App() {
         InitWindow(width*SCALE,height*SCALE,"Voxelized");
         std::cout<<LOD4_START<<" "<<LOD8_START<<" "<<LOD16_START<<" "<<LOD32_START<<"\n";
@@ -559,7 +560,6 @@ class App {
                 }
                 if (gui==0) {    
                                 
-                    Vector3 oldCameraPos = camera.position;
                     Vector3 oldCameraTarget = camera.target;
                     UpdateCamera(&camera, CAMERA_FREE);
                     cameraMoved = false;
@@ -575,7 +575,7 @@ class App {
                 UpdateTexture(displayBuffer, imageBuffer.data);
                         
                 DrawTexturePro(displayBuffer, 
-                    (Rectangle){0, 0, width, height},
+                    (Rectangle){0, 0, (float)width, (float)height},
                     (Rectangle){0, 0, width*SCALE, height*SCALE},
                     (Vector2){0, 0}, 0, WHITE);
                 
@@ -690,16 +690,44 @@ class App {
                         WORLD_WIDTH = worldSize;
                         WORLD_DEPTH = worldSize;
                         
-                        camera.position = (Vector3){ WORLD_WIDTH/2, 384, WORLD_DEPTH/2 };
+                        camera.position = (Vector3){ (float)WORLD_WIDTH/2, 384, (float)WORLD_DEPTH/2 };
                         if (IsMouseButtonDown(0)) {
                             worldFinished = 1;                     
                             worker = std::thread([=]() {
-                                world->Init(camera.position);
+                                world->Init(camera.position,worldType);
                                 worldFinished.store(2);
                             });
                         }
                     }
                 };
+                auto WorldTypeButton = [&](float x, float y, WorldType type, const char* text) {
+                    Rectangle rect = {x,y,200.0f,50.0f};
+                    if (worldType == type) {
+                        DrawRectangle(
+                            x, y,
+                            200.0f, 50.0f,
+                            {GRAY.r, GRAY.g, GRAY.b, 100}
+                        );
+                    }
+
+                    DrawRectangleLinesEx(rect, 3, BLACK);
+                    DrawText(text, x, y, 20, BLACK);
+
+                    if (CheckCollisionRecs(rect,{(float)GetMouseX(), (float)GetMouseY(), 1, 1})) {
+                        DrawRectangle(x, y,200.0f, 50.0f,{GRAY.r, GRAY.g, GRAY.b, 50});
+
+                        if (IsMouseButtonPressed(0)) {
+                            worldType = type;
+                        }
+                    }
+                };
+
+                DrawText("WORLD TYPE", 250, 65, 20, BLACK);
+
+                WorldTypeButton(250, 100, WORLD_PLAINS,    "Plains");
+                WorldTypeButton(250, 160, WORLD_MOUNTAINS, "Mountains");
+                WorldTypeButton(250, 220, WORLD_DESERT,    "Desert");
+                WorldTypeButton(250, 280, WORLD_ISLANDS,   "Islands");
                 Button(0,100,512,"512x512");
                 Button(0,160,1024,"1024x1024");
                 Button(0,220,2048,"2048x2048");

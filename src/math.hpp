@@ -272,6 +272,37 @@ inline uint8_t* GenImagePerlinNoiseOptimized(int width, int height, int offsetX,
                 ((int)pixels[y*width + x - 1] +
                 (int)pixels[y*width + x + 1]) / 2;
         }
+
+        if ((width - 1)%2 == 1)
+        {
+            int x = width - 1;
+
+            float nx = (float)(x + 1 + offsetX)*(scale/(float)width);
+            float ny = (float)(y + offsetY)*(scale/(float)height);
+            if (width > height) nx *= aspectRatio;
+            else ny /= aspectRatio;
+
+            float frequency = 1.0f;
+            float amplitude = 1.0f;
+            float sum = 0.0f;
+
+            for (int i = 0; i < 6; i++) {
+                sum += stb_perlin_noise3_internal(nx*frequency,ny*frequency,frequency,(unsigned char)i)*amplitude;
+                frequency *= 2;
+                amplitude *= 0.5;
+            }
+
+            float p = sum;
+            if (p < -1.0f) p = -1.0f;
+            if (p > 1.0f) p = 1.0f;
+            float np = (p + 1.0f)/2.0f;
+
+            unsigned char nextIntensity = (unsigned char)(np*255.0f);
+
+            pixels[y*width + x] =
+                ((int)pixels[y*width + x - 1] +
+                (int)nextIntensity) / 2;
+        }
     }
 
     #pragma omp parallel for
@@ -282,6 +313,41 @@ inline uint8_t* GenImagePerlinNoiseOptimized(int width, int height, int offsetX,
             pixels[y*width + x] =
                 ((int)pixels[(y - 1)*width + x] +
                 (int)pixels[(y + 1)*width + x]) / 2;
+        }
+    }
+
+    if ((height - 1)%2 == 1)
+    {
+        int y = height - 1;
+
+        #pragma omp parallel for
+        for (int x = 0; x < width; x++)
+        {
+            float nx = (float)(x + offsetX)*(scale/(float)width);
+            float ny = (float)(y + 1 + offsetY)*(scale/(float)height);
+            if (width > height) nx *= aspectRatio;
+            else ny /= aspectRatio;
+
+            float frequency = 1.0f;
+            float amplitude = 1.0f;
+            float sum = 0.0f;
+
+            for (int i = 0; i < 6; i++) {
+                sum += stb_perlin_noise3_internal(nx*frequency,ny*frequency,frequency,(unsigned char)i)*amplitude;
+                frequency *= 2;
+                amplitude *= 0.5;
+            }
+
+            float p = sum;
+            if (p < -1.0f) p = -1.0f;
+            if (p > 1.0f) p = 1.0f;
+            float np = (p + 1.0f)/2.0f;
+
+            unsigned char nextIntensity = (unsigned char)(np*255.0f);
+
+            pixels[y*width + x] =
+                ((int)pixels[(y - 1)*width + x] +
+                (int)nextIntensity) / 2;
         }
     }
 

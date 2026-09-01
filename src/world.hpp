@@ -33,7 +33,7 @@ struct VoxelData {
     bool reflective;
 
 };
-const float shadowQuality = 1.4;
+const float shadowQuality = 1;
 const VoxelData voxelMetaData[10] = {
     { "air",            1.000f, 1.000f, 1.000f, true,  false },
 
@@ -43,7 +43,7 @@ const VoxelData voxelMetaData[10] = {
 
     { "tree_bark",      0.120f, 0.090f, 0.060f, false, false },
 
-    { "leaf",           0.930f, 0.975f, 0.920f, true,  false },
+    { "leaf",           0.930f, 0.975f, 0.920f, false,  false },
 
     { "stone",          0.180f, 0.190f, 0.210f, false, false },
 
@@ -70,6 +70,12 @@ int WORLD_WIDTH = 512;
 int WORLD_DEPTH = 512;
 const int WORLD_HEIGHT = 512;
 const int RENDERDISTANCE = 8192;
+enum WorldType {
+    WORLD_PLAINS = 0,
+    WORLD_MOUNTAINS,
+    WORLD_DESERT,
+    WORLD_ISLANDS
+};
 struct VoxelChunk {
     uint8_t *voxels;
     uint8_t *voxelLightValueR;
@@ -82,66 +88,114 @@ struct VoxelChunk {
     int filledOut = 0;
     int lod = -1;
     int size;
-    void Generate(uint8_t*heightMap, uint8_t*noiseXY, uint8_t*noiseXZ,uint8_t*noiseYZ, int chunkX,int chunkY, int chunkZ) {
+    int Generate(uint8_t* heightMap,uint8_t* noiseXY,uint8_t* noiseXZ,uint8_t* noiseYZ,int chunkX, int chunkY, int chunkZ,WorldType worldType = WORLD_PLAINS) {
         containsBlocks = false;
+
+        auto EnsureStorage = [&]() {
+            if (!containsBlocks) {
+                voxels = (uint8_t*)MemAlloc(32 * 32 * 32);
+                Clear();
+                containsBlocks = true;
+            }
+        };
+        int highestY = 0;
         for (int mx = 0; mx < 32; mx++) {
             for (int mz = 0; mz < 32; mz++) {
-                int x = chunkX+mx;
-                int z = chunkZ+mz;
-                
-                int height = heightMap[z * WORLD_WIDTH + x];
-                float xz = noiseXZ[z * WORLD_WIDTH + x];
-                for (int my = 0; my < 32; my++) {
-                    
-                    int y = chunkY+my;
-                    
-                    int id = IDX(mx,my,mz,32);
-                    if (height==y) {
-                        
-                        float xy = noiseXY[y * WORLD_WIDTH + x] ;
-                        float yz = noiseYZ[y * WORLD_DEPTH + z] ;
-                        float density = (xy + xz + yz) / 3.0f;
-                        bool cave = density > 145;
-                        if (!cave) {
-                            if (!containsBlocks) {
-                                voxels = (uint8_t*)MemAlloc(32*32*32);
-                                Clear();
-                            }
-                            containsBlocks = true;
-                            voxels[id] = GRASS;
-                        }
+                const int x = chunkX + mx;
+                const int z = chunkZ + mz;
+
+                const float hNoise = heightMap[mz * 32 + mx] / 255.0f;
+                int terrainHeight = 0;
+                int waterLevel = 50;
+                uint8_t surfaceBlock = GRASS;
+                uint8_t subsurfaceBlock = STONE;
+                int surfaceDepth = 1;
+                float caveThreshold = 145.0f;
+
+                switch (worldType) {
+                    case WORLD_PLAINS:
+                        terrainHeight = 70 + (int)(hNoise * 50.0f);
+                        waterLevel = 72;
+                        surfaceBlock = GRASS;
+                        subsurfaceBlock = STONE;
+                        surfaceDepth = 2;
+                        caveThreshold = 150.0f;
+                        break;
+
+                    case WORLD_MOUNTAINS: {
+                        const float mountain = hNoise * hNoise;
+                        terrainHeight = 45 + (int)(mountain * 205.0f);
+                        waterLevel = 55;
+                        surfaceBlock = (terrainHeight > 175) ? STONE : GRASS_VARIANT;
+                        subsurfaceBlock = STONE;
+                        surfaceDepth = 2;
+                        caveThreshold = 142.0f;
+                        break;
                     }
-                    else if (y<height) {
-                        if (y<50) {
-                            
-                            if (!containsBlocks) {
-                                voxels = (uint8_t*)MemAlloc(32*32*32);
-                                Clear();
-                            }
-                            containsBlocks = true;
-                            voxels[id] = WATER;    
-                        }
-                        else {
-                                
-                            float xy = noiseXY[y * WORLD_WIDTH + x];
-                            float yz = noiseYZ[y * WORLD_DEPTH + z];
-                            float density = (xy + xz + yz) / 3.0f;
-                            bool cave = density > 145;
-                            if (!cave) {
-                                    
-                                if (!containsBlocks) {
-                                    voxels = (uint8_t*)MemAlloc(32*32*32);
-                                    Clear();
-                                }   
-                                containsBlocks = true;
-                                voxels[id] = STONE;
-                            }
-                        }
+
+                    case WORLD_DESERT:
+                        terrainHeight = 68 + (int)(hNoise * 42.0f);
+                        waterLevel = 45;
+                        surfaceBlock = SAND;
+                        subsurfaceBlock = SAND;
+                        surfaceDepth = 5;
+                        caveThreshold = 155.0f;
+                        break;
+
+                    case WORLD_ISLANDS: {
+                        const float nx = (x / (float)(32  - 1)) * 2.0f - 1.0f;
+                        const float nz = (z / (float)(32 - 1)) * 2.0f - 1.0f;
+                        const float radial = sqrtf(nx * nx + nz * nz);
+                        const float falloff = std::max(0.0f, 1.0f - radial);
+                        terrainHeight = 38 + (int)(hNoise * 115.0f * falloff);
+                        waterLevel = 62;
+                        surfaceBlock = (terrainHeight <= waterLevel + 3) ? SAND : GRASS;
+                        subsurfaceBlock = STONE;
+                        surfaceDepth = 3;
+                        caveThreshold = 148.0f;
+                        break;
                     }
                 }
-            
+
+                terrainHeight = std::max(1, std::min(terrainHeight, WORLD_HEIGHT - 1));
+                highestY = std::max(highestY,terrainHeight);
+                        
+                const float xz = noiseXZ[mz * 32 + mx];
+
+                for (int my = 0; my < 32; my++) {
+                    const int y = chunkY + my;
+                    const int id = IDX(mx, my, mz, 32);
+
+                    if (y > terrainHeight) {
+                        if (y <= waterLevel) {
+                            EnsureStorage();
+                            voxels[id] = WATER;
+                        }
+                        continue;
+                    }
+
+                    const float xy = noiseXY[my * 32 + mx];
+                    const float yz = noiseYZ[my * 32 + mz];
+                    const float density = (xy + xz + yz) / 3.0f;
+
+                    const bool cave = (y > 4) && (density > caveThreshold);
+                    if (cave)
+                        continue;
+
+                    EnsureStorage();
+
+                    const int depth = terrainHeight - y;
+                    if (depth == 0) {
+                        voxels[id] = surfaceBlock;
+                    } else if (depth < surfaceDepth) {
+                        voxels[id] = subsurfaceBlock;
+                    } else {
+                        voxels[id] = STONE;
+                    }
+                }
             }
         }
+        return highestY;
     }
     bool CheckOriginals(int lod) {
         palletized = 0;
@@ -720,42 +774,194 @@ struct World {
             }
         }
     }
-    void GenerateTerrain() {
-        uint8_t * noise = GenImagePerlinNoiseOptimized(
-            WORLD_WIDTH,
-            WORLD_DEPTH,
-            0.0f, 
-            0.0f, 
-            5.0f 
-        );
-        uint8_t *noiseXY = GenImagePerlinNoiseOptimized(
-            WORLD_WIDTH, WORLD_HEIGHT,
-            0, 0, 6.0f
-        );
-
-        uint8_t *noiseXZ = GenImagePerlinNoiseOptimized(
-            WORLD_WIDTH, WORLD_DEPTH,
-            300, 700, 6.0f
-        );
-
-        uint8_t *noiseYZ = GenImagePerlinNoiseOptimized(
-            WORLD_DEPTH, WORLD_HEIGHT,
-            900, 1300, 6.0f
-        );
+    void GenerateTerrain(WorldType worldType=WORLD_MOUNTAINS) {
+        
 
         std::cout<<"World gen beg\n";
-#pragma omp parallel for collapse(3) 
+#pragma omp parallel for collapse(2) 
         for (int x = 0; x < WORLD_WIDTH/32; x++) {
             for (int z = 0; z < WORLD_DEPTH/32; z++) {
+                uint8_t* heightMap = GenImagePerlinNoiseOptimized(32,32,x*32,z*32,5.0f/10.0f);
                 for (int y = 0; y < WORLD_HEIGHT/32; y++) {
-                    voxelChunks[x][y][z].Generate(noise,noiseXY,noiseXZ,noiseYZ,x*32,y*32,z*32);
+                    uint8_t* noiseXZ = GenImagePerlinNoiseOptimized(32,32,300 + x*32,700 + z*32,6.0f/10.0f);
+                    uint8_t* noiseXY = GenImagePerlinNoiseOptimized(32,32,x*32,y*32,6.0f/10.0f);
+                    uint8_t* noiseYZ = GenImagePerlinNoiseOptimized(32,32,900 + z*32,1300 + y*32,6.0f/10.0f);
+
+                    int dy = voxelChunks[x][y][z].Generate(heightMap,noiseXY,noiseXZ,noiseYZ,x*32,y*32,z*32,worldType);
+                    free(noiseXZ);
+                    free(noiseXY);
+                    free(noiseYZ);
+                    if (y*32>dy) break;
                 }
+                free(heightMap);
             }
         }
-        MemFree(noise);
-        MemFree(noiseXY);
-        MemFree(noiseXZ);
-        MemFree(noiseYZ);
+
+        auto sphere = [&](int x, int y, int z, int size, uint8_t type) {
+            int middleX = x + size/2;
+            int middleY = y + size/2;
+            int middleZ = z + size/2;
+            for (int dx = 0; dx < size; dx++) {
+                for (int dy = 0; dy < size; dy++) {
+                    for (int dz = 0; dz < size; dz++) {
+                        if (Vector3Distance({(float)middleX,(float)middleY,(float)middleZ},{(float)dx+x,(float)dy+y,(float)dz+z})<size/2) {
+                            int cx = x+dx;
+                            int cy = y+dy;
+                            int cz = z+dz;
+                            if (!voxelChunks[cx/32][cy/32][cz/32].containsBlocks) {
+
+                                voxelChunks[cx/32][cy/32][cz/32].voxels = (uint8_t*)MemAlloc(32 * 32 * 32);
+                                memset(voxelChunks[cx/32][cy/32][cz/32].voxels,0,32*32*32);
+                                voxelChunks[cx/32][cy/32][cz/32].containsBlocks = true;
+                            }
+                            voxelChunks[cx/32][cy/32][cz/32].voxels[IDX(cx%32,cy%32,cz%32,32)] = type;
+                        }
+
+                    }
+                }   
+            }
+        }; 
+        auto setVoxel = [&](int x, int y, int z, uint8_t type)
+        {
+            if (x < 0 || x >= WORLD_WIDTH ||
+                y < 0 || y >= WORLD_HEIGHT ||
+                z < 0 || z >= WORLD_DEPTH)
+                return;
+
+            VoxelChunk& chunk = voxelChunks[x / 32][y / 32][z / 32];
+
+            if (!chunk.containsBlocks)
+            {
+                chunk.voxels = (uint8_t*)MemAlloc(32 * 32 * 32);
+                memset(chunk.voxels, AIR, 32 * 32 * 32);
+                chunk.containsBlocks = true;
+            }
+
+            chunk.voxels[IDX(x % 32, y % 32, z % 32, 32)] = type;
+        };
+
+
+        auto branch = [&](Vector3 from, Vector3 to, float radius, uint8_t type)
+        {
+            Vector3 delta = Vector3Subtract(to, from);
+            int steps = (int)ceilf(Vector3Length(delta) * 2.0f);
+            steps = std::max(steps, 1);
+            for (int i = 0; i <= steps; ++i)
+            {
+                float t = i / (float)steps;
+                Vector3 p = Vector3Lerp(from, to, t);
+                int ir = std::max(radius * (1.0f - t * 0.65f),0.65f);
+                for (int dx = -ir; dx <= ir; ++dx)
+                    for (int dy = -ir; dy <= ir; ++dy)
+                        for (int dz = -ir; dz <= ir; ++dz)
+                            if (dx*dx + dy*dy + dz*dz <= ir*ir)
+                                setVoxel(p.x + dx,p.y + dy,p.z + dz,type);
+            }
+        };
+
+        auto leafCluster = [&](int cx, int cy, int cz, int radius)
+        {
+            for (int i = 0; i < GET_RANDOM_VALUE(5, 9); ++i)
+            {
+                int rx = GET_RANDOM_VALUE(radius / 2, radius);
+                int ry = GET_RANDOM_VALUE(2, std::max(3, radius / 2));
+                int rz = GET_RANDOM_VALUE(radius / 2, radius);
+
+                int ox = GET_RANDOM_VALUE(-radius / 2, radius / 2);
+                int oz = GET_RANDOM_VALUE(-radius / 2, radius / 2);
+                int oy = GET_RANDOM_VALUE(-radius, radius / 3);
+                for (int x = -rx; x <= rx; ++x) {
+                    for (int y = -ry; y <= ry; ++y) {
+                        for (int z = -rz; z <= rz; ++z) {
+                            float nx = x / (float)rx;
+                            float ny = y / (float)ry;
+                            float nz = z / (float)rz;
+
+                            float d = nx*nx + ny*ny + nz*nz;
+
+                            if (d > 1.0f) continue;
+                            if (GET_RANDOM_VALUE(0, 100) < 18) continue;
+
+                            if (d > 0.55f) {
+                                int edgeChance = (int)((d - 0.55f) * 110.0f);
+                                if (GET_RANDOM_VALUE(0, 100) < edgeChance) continue; 
+                            }
+
+                            setVoxel(cx + x+ox, cy + y+oy, cz + z+oz, LEAF);
+                        }
+                    }
+                }
+            }
+
+            int hanging = GET_RANDOM_VALUE(2, 5);
+
+            for (int i = 0; i < hanging; ++i)
+            {
+                int hx = cx + GET_RANDOM_VALUE(-radius, radius);
+                int hz = cz + GET_RANDOM_VALUE(-radius, radius);
+                for (int y = 0; y < GET_RANDOM_VALUE(2, 6); ++y)
+                    if (GET_RANDOM_VALUE(0, 100) < 75 - y * 8) setVoxel(hx + GET_RANDOM_VALUE(-1, 1),cy - radius / 2 - y,hz + GET_RANDOM_VALUE(-1, 1),LEAF);
+            }
+        };
+
+
+        auto oakTree = [&](int x, int groundY, int z)
+        {
+            const int height = GET_RANDOM_VALUE(52, 72);
+            const float trunkRadius = GET_RANDOM_VALUE(20, 28) / 10.0f;
+            Vector3 trunkBottom = {(float)x,(float)groundY,(float)z};
+            Vector3 trunkMiddle = {(float)x + GET_RANDOM_VALUE(-2, 2),(float)groundY + height * 0.55f,(float)z + GET_RANDOM_VALUE(-2, 2)};
+            Vector3 trunkTop = {trunkMiddle.x + GET_RANDOM_VALUE(-2, 2),(float)groundY + height,trunkMiddle.z + GET_RANDOM_VALUE(-2, 2)};
+            branch(trunkBottom,trunkMiddle,trunkRadius,TREE_BARK);
+            branch(trunkMiddle,trunkTop,trunkRadius * 0.75f,TREE_BARK);
+
+            const int mainBranches = GET_RANDOM_VALUE(7, 11);
+
+            for (int b = 0; b < mainBranches; ++b)
+            {
+                float angle = ((float)b / mainBranches) * PI * 2.0f;
+                angle += GET_RANDOM_VALUE(-40, 40) * DEG2RAD;
+                float startHeight = height * (GET_RANDOM_VALUE(45, 76) /100.0f);
+                Vector3 start = {trunkBottom.x + (trunkTop.x - trunkBottom.x) * (startHeight / height),groundY + startHeight, trunkBottom.z + (trunkTop.z - trunkBottom.z) * (startHeight / height)};
+                float length =GET_RANDOM_VALUE(16, 30);
+                Vector3 end = {start.x + cosf(angle) * length,start.y + GET_RANDOM_VALUE(5, 15),start.z + sinf(angle) * length};
+                branch(start,end,GET_RANDOM_VALUE(13, 20) / 10.0f,TREE_BARK);
+
+                int childBranches = GET_RANDOM_VALUE(2, 4);
+
+                for (int c = 0; c < childBranches; ++c)
+                {
+                    float childAngle = angle + GET_RANDOM_VALUE(-55, 55) * DEG2RAD;
+                    float along = GET_RANDOM_VALUE(45, 90) / 100.0f;
+                    Vector3 childStart = Vector3Lerp(start, end, along);
+                    float childLength = GET_RANDOM_VALUE(7, 16);
+                    Vector3 childEnd = {childStart.x + cosf(childAngle) * childLength,childStart.y + GET_RANDOM_VALUE(2, 9), childStart.z + sinf(childAngle) * childLength};
+
+                    branch(childStart,childEnd,GET_RANDOM_VALUE(7, 12) / 10.0f,TREE_BARK);
+                    leafCluster((int)childEnd.x,(int)childEnd.y,(int)childEnd.z,GET_RANDOM_VALUE(5, 8));
+                }
+                leafCluster((int)end.x,(int)end.y,(int)end.z,GET_RANDOM_VALUE(6, 9));
+            }
+            for (int i = 0; i < 4; ++i) {
+                leafCluster((int)trunkTop.x + GET_RANDOM_VALUE(-8, 8),(int)trunkTop.y + GET_RANDOM_VALUE(-3, 8),(int)trunkTop.z + GET_RANDOM_VALUE(-8, 8),GET_RANDOM_VALUE(6, 9));
+            }
+        };
+        for (int i = 0; i < 100; ++i) {
+            int x =GET_RANDOM_VALUE(40, WORLD_WIDTH - 40);
+            int z =GET_RANDOM_VALUE(40, WORLD_DEPTH - 40);
+            int d= 0;
+            bool findAIR = false;
+            for (int y = 0; y < 300; y++) {
+                if (GetVoxel(x,y,z)==GRASS) {
+                    findAIR = true;
+                }
+                if (GetVoxel(x,y,z)==0 && findAIR) {
+                    oakTree(x, y, z);
+                    break;
+                }
+
+            }
+        }
     }
     void GenerateOccupancyMasks() {
         
@@ -793,7 +999,7 @@ struct World {
             }
         }
     }
-    void Init(Vector3 cameraPosition) {
+    void Init(Vector3 cameraPosition, WorldType worldType) {
         for (int x = 0; x < WORLD_WIDTH/32; x++) {
             for (int y= 0 ; y < WORLD_HEIGHT/32; y++) {
                 for (int z = 0; z < WORLD_DEPTH/32; z++) {
@@ -811,7 +1017,7 @@ struct World {
             }
         }
         auto terrainBeg = Clock::now();
-        GenerateTerrain();
+        GenerateTerrain(worldType);
         std::cout<<"World gen end\n";
         auto terrainEnd = Clock::now();
         
