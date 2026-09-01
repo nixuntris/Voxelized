@@ -22,7 +22,9 @@ enum VoxelTypes {
     LEAF=4,
     STONE = 5,
     SAND = 6,
-    WATER = 7
+    WATER = 7,
+    CACTUS = 8,
+    CACTUS_BUD = 9
 };
 struct VoxelData {
     std::string name;
@@ -51,9 +53,9 @@ const VoxelData voxelMetaData[10] = {
 
     { "water",          0.992f, 0.996f, 0.999f, true,  true },
 
-    { "",               0.000f, 0.000f, 0.000f, false, false },
-
-    { "",               0.000f, 0.000f, 0.000f, false, false }
+    { "Cactus",      0.160f, 0.180f, 0.120f, false, false },
+ 
+    { "Cactus_bud",  0.650f, 0.720f, 0.580f, false, false }
 };
 const float FOVY = 120.0f;
 float SCALE = 1;
@@ -66,8 +68,8 @@ const float LOD8_START  = 8.0f  / PIXEL_WORLD_SLOPE;
 const float LOD16_START = 16.0f / PIXEL_WORLD_SLOPE;
 const float LOD32_START = 32.0f / PIXEL_WORLD_SLOPE;
 
-int WORLD_WIDTH = 512;
-int WORLD_DEPTH = 512;
+int WORLD_WIDTH = 2048;
+int WORLD_DEPTH = 2048;
 const int WORLD_HEIGHT = 512;
 const int RENDERDISTANCE = 8192;
 enum WorldType {
@@ -903,8 +905,64 @@ struct World {
                     if (GET_RANDOM_VALUE(0, 100) < 75 - y * 8) setVoxel(hx + GET_RANDOM_VALUE(-1, 1),cy - radius / 2 - y,hz + GET_RANDOM_VALUE(-1, 1),LEAF);
             }
         };
+        auto cactusBudCluster = [&](int cx, int cy, int cz)
+        {
+            setVoxel(cx, cy, cz, CACTUS_BUD);
 
+            if (GET_RANDOM_VALUE(0, 100) < 70) setVoxel(cx + 1, cy, cz, CACTUS_BUD);
+            if (GET_RANDOM_VALUE(0, 100) < 70) setVoxel(cx - 1, cy, cz, CACTUS_BUD);
+            if (GET_RANDOM_VALUE(0, 100) < 70) setVoxel(cx, cy, cz + 1, CACTUS_BUD);
+            if (GET_RANDOM_VALUE(0, 100) < 70) setVoxel(cx, cy, cz - 1, CACTUS_BUD);
 
+            if (GET_RANDOM_VALUE(0, 100) < 50) setVoxel(cx, cy + 1, cz, CACTUS_BUD);
+        };
+        auto cactusPlant = [&](int x, int groundY, int z)
+        {
+            const int height = GET_RANDOM_VALUE(18, 34);
+            const float trunkRadius = GET_RANDOM_VALUE(12, 18) / 10.0f;
+
+            Vector3 base = { (float)x, (float)groundY, (float)z };
+            Vector3 mid = {(float)x + GET_RANDOM_VALUE(-1, 1),(float)groundY + height * 0.55f,(float)z + GET_RANDOM_VALUE(-1, 1)};
+            Vector3 top = {mid.x + GET_RANDOM_VALUE(-1, 1),(float)groundY + height,mid.z + GET_RANDOM_VALUE(-1, 1)};
+
+            branch(base, mid, trunkRadius, CACTUS);
+            branch(mid, top, trunkRadius * 0.9f, CACTUS);
+
+            if (GET_RANDOM_VALUE(0, 100) < 75)
+                cactusBudCluster((int)top.x, (int)top.y, (int)top.z);
+
+            int arms = GET_RANDOM_VALUE(0, 3);
+
+            for (int a = 0; a < arms; ++a)
+            {
+                float angle = GET_RANDOM_VALUE(0, 359) * DEG2RAD;
+
+                float startHeight = height * (GET_RANDOM_VALUE(40, 78) / 100.0f);
+                Vector3 start = Vector3Lerp(base, top, startHeight / height);
+                float armLength = GET_RANDOM_VALUE(8, 18);
+                Vector3 elbow = {start.x + cosf(angle) * (armLength * 0.45f),start.y + GET_RANDOM_VALUE(3, 7),start.z + sinf(angle) * (armLength * 0.45f)};
+                Vector3 end = {elbow.x,elbow.y + GET_RANDOM_VALUE(5, 10),elbow.z};
+
+                branch(start, elbow, trunkRadius * 0.75f, CACTUS);
+                branch(elbow, end, trunkRadius * 0.60f, CACTUS);
+
+                if (GET_RANDOM_VALUE(0, 100) < 85)
+                    cactusBudCluster((int)end.x, (int)end.y, (int)end.z);
+            }
+
+            int sideBuds = GET_RANDOM_VALUE(0, 4);
+            for (int i = 0; i < sideBuds; ++i)
+            {
+                float t = GET_RANDOM_VALUE(55, 95) / 100.0f;
+                Vector3 p = Vector3Lerp(base, top, t);
+
+                int ox = GET_RANDOM_VALUE(-1, 1);
+                int oz = GET_RANDOM_VALUE(-1, 1);
+                if (ox == 0 && oz == 0) ox = 1;
+
+                setVoxel((int)p.x + ox, (int)p.y, (int)p.z + oz, CACTUS_BUD);
+            }
+        };
         auto oakTree = [&](int x, int groundY, int z)
         {
             const int height = GET_RANDOM_VALUE(52, 72);
@@ -919,8 +977,7 @@ struct World {
 
             for (int b = 0; b < mainBranches; ++b)
             {
-                float angle = ((float)b / mainBranches) * PI * 2.0f;
-                angle += GET_RANDOM_VALUE(-40, 40) * DEG2RAD;
+                float angle = ((float)b / mainBranches) * PI * 2.0f+ GET_RANDOM_VALUE(-40, 40) * DEG2RAD;
                 float startHeight = height * (GET_RANDOM_VALUE(45, 76) /100.0f);
                 Vector3 start = {trunkBottom.x + (trunkTop.x - trunkBottom.x) * (startHeight / height),groundY + startHeight, trunkBottom.z + (trunkTop.z - trunkBottom.z) * (startHeight / height)};
                 float length =GET_RANDOM_VALUE(16, 30);
@@ -932,8 +989,7 @@ struct World {
                 for (int c = 0; c < childBranches; ++c)
                 {
                     float childAngle = angle + GET_RANDOM_VALUE(-55, 55) * DEG2RAD;
-                    float along = GET_RANDOM_VALUE(45, 90) / 100.0f;
-                    Vector3 childStart = Vector3Lerp(start, end, along);
+                    Vector3 childStart = Vector3Lerp(start, end,  GET_RANDOM_VALUE(45, 90) / 100.0f);
                     float childLength = GET_RANDOM_VALUE(7, 16);
                     Vector3 childEnd = {childStart.x + cosf(childAngle) * childLength,childStart.y + GET_RANDOM_VALUE(2, 9), childStart.z + sinf(childAngle) * childLength};
 
@@ -946,37 +1002,31 @@ struct World {
                 leafCluster((int)trunkTop.x + GET_RANDOM_VALUE(-8, 8),(int)trunkTop.y + GET_RANDOM_VALUE(-3, 8),(int)trunkTop.z + GET_RANDOM_VALUE(-8, 8),GET_RANDOM_VALUE(6, 9));
             }
         };
-        for (int i = 0; i < 100; ++i) {
+        for (int i = 0; i < ((WORLD_WIDTH/32)*(WORLD_DEPTH/32))*float(GET_RANDOM_VALUE(2,10))/10.0f; ++i) {
             int x =GET_RANDOM_VALUE(40, WORLD_WIDTH - 40);
             int z =GET_RANDOM_VALUE(40, WORLD_DEPTH - 40);
-            int d= 0;
-            bool findAIR = false;
+            bool findAIRG = false;
+            bool findAIRS = false;
             for (int y = 0; y < 300; y++) {
                 if (GetVoxel(x,y,z)==GRASS) {
-                    findAIR = true;
+                    findAIRG = true;
                 }
-                if (GetVoxel(x,y,z)==0 && findAIR) {
+                if (GetVoxel(x,y,z)==SAND) {
+                    findAIRS = true;
+                }
+                if (GetVoxel(x,y,z)==0 && findAIRG) {
                     oakTree(x, y, z);
                     break;
                 }
-
+                if (GetVoxel(x,y,z)==0 && findAIRS) {
+                    std::cout<<"a\n";
+                    cactusPlant(x, y, z);
+                    break;
+                }
             }
         }
     }
     void GenerateOccupancyMasks() {
-        
-#pragma omp parallel for collapse(3) schedule(static)
-        for (int x = 0; x < WORLD_WIDTH/32; x++) {
-            for (int y= 0 ; y < WORLD_HEIGHT/32; y++) {
-                for (int z = 0; z < WORLD_DEPTH/32; z++) {
-                    if (!voxelChunks[x][y][z].containsBlocks) {
-                        //MemFree(voxelChunks[x][y][z].voxels);
-                        //voxelChunks[x][y][z].voxels = nullptr;
-                    }
-                }
-            }
-        }
-    
 #pragma omp parallel for collapse(3) schedule(static)
         for (int x = 0; x < WORLD_WIDTH/32; x++) {
             for (int y= 0 ; y < WORLD_HEIGHT/32; y++) {

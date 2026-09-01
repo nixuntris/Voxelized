@@ -19,3 +19,4 @@ Controls are:
 W - forward
 S - backwards
 Mouse - rotation
+E - menu

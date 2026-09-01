@@ -14,7 +14,7 @@
 #include <thread>
 #include <atomic>
 using Clock = std::chrono::steady_clock;
-const Color colors[10] = {SKYBLUE,GREEN,{uint8_t(GREEN.r*0.9),uint8_t(GREEN.g*0.9),uint8_t(GREEN.b*0.9),255},BROWN,DARKGREEN,GRAY,YELLOW,BLUE};
+const Color colors[255] = {SKYBLUE,GREEN,{uint8_t(GREEN.r*0.9),uint8_t(GREEN.g*0.9),uint8_t(GREEN.b*0.9),255},BROWN,DARKGREEN,GRAY,YELLOW,BLUE, LIME,PINK};
        
 constexpr int BUFFER_WIDTH = 1920;
 constexpr int BUFFER_HEIGHT = 1080;
@@ -535,6 +535,10 @@ class App {
         << "Light: "     << lightTime     << " ms \n";
     }
     void Run() {
+        int dvdX = 0;
+        int dvdY = 0;
+        int dvdXChange = 1;
+        int dvdYChange = 1;
         
         int gui = 0;
                
@@ -677,6 +681,12 @@ class App {
                 
             }
             else if (worldFinished==1) {
+                SetTargetFPS(60);
+                if (dvdX>width || dvdX<0) dvdXChange *= -1;
+                if (dvdY>height || dvdY<0) dvdYChange *= -1; 
+                dvdX+=dvdXChange;
+                dvdY+=dvdYChange;
+                DrawRectangle(dvdX,dvdY,32,32,BLACK);
                 DisableCursor();
                 DrawText("Generating the world, please wait!", 0,0,25,BLACK);
                 EndDrawing();
