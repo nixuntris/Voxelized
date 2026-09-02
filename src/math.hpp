@@ -41,10 +41,14 @@
 #define IDX(x, y, z, size) \
     ((int)(x) * (int)(size) * (int)(size) + \
      (int)(y) * (int)(size) + (int)(z)) 
-
+#define WIDX(x, y, z, size, height) \
+    ((int)(x) * (int)(height) * (int)(size) + \
+     (int)(y) * (int)(size) + \
+     (int)(z))
 struct IVector3 {
     int x,y,z;
 };
+
 inline static void GetScreenToWorldRay8(
     float x0, float py, int width, int height, const Matrix &viewInv,
     float *out_x, float *out_y, float *out_z)
@@ -84,17 +88,27 @@ inline static void GetScreenToWorldRay8(
     _mm256_storeu_ps(out_y, _mm256_mul_ps(wy, invLen));
     _mm256_storeu_ps(out_z, _mm256_mul_ps(wz, invLen));
 }
-
-inline static Vector2 GetWorldToScreenOptimized(Vector3 position, Camera camera, int width, int height, Matrix matProj, Matrix matView)
+inline static Vector2 GetWorldToScreenOptimized(
+    Vector3 p,
+    const Matrix& view)
 {
-    Quaternion worldPos = { position.x, position.y, position.z, 1.0f };
-    worldPos = QuaternionTransform(worldPos, matView);
-    worldPos = QuaternionTransform(worldPos, matProj);
-    Vector3 ndcPos = { worldPos.x/worldPos.w, -worldPos.y/worldPos.w, worldPos.z/worldPos.w };
-    Vector2 screenPosition = { (ndcPos.x + 1.0f)/2.0f*(float)width, (ndcPos.y + 1.0f)/2.0f*(float)height };
+    float viewX =view.m0 * p.x +view.m4 * p.y +view.m8 * p.z +view.m12;
+    float viewY =view.m1 * p.x +view.m5 * p.y +view.m9 * p.z +view.m13;
+    float viewZ =view.m2 * p.x +view.m6 * p.y +view.m10 * p.z +view.m14;
 
-    return screenPosition;
+    float invW = -1.0f / viewZ;
+
+    float projScale = 1.73205f;
+
+    float ndcX = viewX * projScale * invW;
+    float ndcY = -viewY * projScale * invW;
+
+    return {
+        (ndcX + 1.0f) * 400,
+        (ndcY + 1.0f) * 400
+    };
 }
+
 static unsigned char stb__perlin_randtab[512] =
 {
    23, 125, 161, 52, 103, 117, 70, 37, 247, 101, 203, 169, 124, 126, 44, 123,

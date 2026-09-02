@@ -8,10 +8,27 @@
 #include <vector>
 #include <set>
 #include <unordered_set>
+const bool dedupe = false;
 using Clock = std::chrono::steady_clock;
 auto ms = [](auto start, auto end) {
     return std::chrono::duration<double, std::milli>(end - start).count();
 };
+#define READ_VOXEL(chunk, index)                                             \
+    (!(chunk).containsBlocks ? AIR :                                         \
+     !(chunk).chunkedPallete ? (chunk).voxels[(index)] :                     \
+     (chunk).remap[                                                          \
+         ((chunk).voxels[(index) >> 1] >> (((index) & 1) * 4)) & 0x0F        \
+     ])
+#define GET_DISTANCE8(chunk, index) \
+    ((chunk).distance8 == nullptr ? 0 : (chunk).distance8[(index)])
+
+#define GET_DISTANCE4(chunk, index) \
+    ((chunk).distance4 == nullptr ? (chunk).only : \
+     (chunk).distance4Bits == 0 ? (chunk).distance4[(index)] : \
+     (uint8_t)((chunk).quantized + \
+        (((chunk).distance4[((index) * (chunk).distance4Bits) >> 3] >> \
+          (((index) * (chunk).distance4Bits) & 7)) & \
+         ((1u << (chunk).distance4Bits) - 1u))))
 #define CELL_PTR(chunk, cellSize) \
     ((cellSize) == 8 ? &(chunk).distance8[0] : &(chunk).distance4[0])
 enum VoxelTypes {
@@ -57,7 +74,7 @@ const VoxelData voxelMetaData[10] = {
  
     { "Cactus_bud",  0.650f, 0.720f, 0.580f, false, false }
 };
-const float FOVY = 120.0f;
+const float FOVY = 60.0f;
 float SCALE = 1;
 int width = 800/SCALE;
 int height = 800/SCALE;
@@ -89,6 +106,7 @@ struct VoxelChunk {
     uint8_t *remap;
     int filledOut = 0;
     int lod = -1;
+    bool chunkedPallete = false;
     int size;
     int Generate(uint8_t* heightMap,uint8_t* noiseXY,uint8_t* noiseXZ,uint8_t* noiseYZ,int chunkX, int chunkY, int chunkZ,WorldType worldType = WORLD_PLAINS) {
         containsBlocks = false;
@@ -203,6 +221,7 @@ struct VoxelChunk {
         palletized = 0;
         this->lod = lod;
         size = 32/lod;
+        
         if (containsBlocks) {
             uint8_t tt = voxels[IDX(0,0,0,32)];
             int commons[256];
@@ -240,10 +259,71 @@ struct VoxelChunk {
                 }
                 MemFree(voxels);
                 voxels = lodVer;
+
             }
+            const int voxelCount = size * size * size;
+
+            bool types[256] = { false };
+
+            for (int i = 0; i < voxelCount; i++) {
+                if (voxels[i] != 0) types[voxels[i]] = true;
+            }
+            int voxelTypes = 0;
+            for (int i = 1; i < 256; i++)  
+                voxelTypes+=types[i];
+
+            if (voxelTypes <= 15) {
+                chunkedPallete = true;
+                const int packedSize = (voxelCount + 1) / 2;
+                uint8_t* palletVoxels = (uint8_t*)MemAlloc(packedSize);
+                memset(palletVoxels, 0, packedSize);
+                remap = (uint8_t*)MemAlloc(16);
+                memset(remap, 0, 16);
+                uint8_t toPalette[256] = { 0 };
+                remap[0] = 0;
+                uint8_t paletteIndex = 1;
+
+                for (int voxel = 1; voxel < 256; voxel++) {
+                    if (types[voxel]) {
+                        toPalette[voxel] = paletteIndex;
+                        remap[paletteIndex] = (uint8_t)voxel;
+                        paletteIndex++;
+                    }
+                }
+                for (int i = 0; i < voxelCount; i++) {
+                    uint8_t paletteVoxel = toPalette[voxels[i]];
+
+                    if ((i & 1) == 0) {
+                        palletVoxels[i >> 1] |= paletteVoxel;
+                    } else {
+                        palletVoxels[i >> 1] |= (uint8_t)(paletteVoxel << 4);
+                    }
+                }
+                MemFree(voxels);
+                voxels = palletVoxels;
+
+            }
+
+
             return true;
         }
         return false;
+    }
+    uint8_t inline ReadVoxel(int index) const {
+
+        if (!chunkedPallete)
+            return voxels[index];
+
+        uint8_t packed = voxels[index >> 1];
+
+        uint8_t paletteIndex;
+
+        if ((index & 1) == 0)
+            paletteIndex = packed & 0x0F;
+        else
+            paletteIndex = (packed >> 4) & 0x0F;
+
+        return remap[paletteIndex];
     }
     void Clear() {
         containsBlocks = false;
@@ -560,7 +640,7 @@ struct World {
                                     for (int y = 0; y < 16 && !occupied; ++y)
                                         for (int z = 0; z < 16; ++z)
                                         
-                                            if (voxelChunk.voxels[IDX(bx+x,by+y,bz+z,32)]) {
+                                            if (voxelChunk.voxels[IDX(bx+x,by+y,bz+z,32)]) { //to support voxels
                                                 occupied = true;
                                                 break;
                                             }
@@ -674,12 +754,11 @@ struct World {
                                 const int bx = sx * cellSize;
                                 const int by = sy * cellSize;
                                 const int bz = sz * cellSize;
-                                
                                 for (int x = 0; x < cellSize && !occupied; ++x)
                                     for (int y = 0; y < cellSize && !occupied; ++y)
                                         for (int z = 0; z < cellSize; ++z)
                                         
-                                            if (voxelChunk.voxels[IDX(bx+x,by+y,bz+z,32)]) {
+                                            if (voxelChunk.voxels[IDX(bx+x,by+y,bz+z,32)]) { //to support lod
                                                 occupied = true;
                                                 break;
                                             }
@@ -1060,18 +1139,20 @@ struct World {
                     if (dist>LOD8_START) lod = 8;
                     if (dist>LOD16_START) lod = 16;
                     traversalChunks[x][y][z].buildID = lod; 
-                    //voxelChunks[x][y][z].Clear();
                     traversalChunks[x][y][z].Init(lod);
                     
                 }
             }
         }
+        
+        //do lods before distance fields for faster calculations of dfs
         auto terrainBeg = Clock::now();
         GenerateTerrain(worldType);
         std::cout<<"World gen end\n";
         auto terrainEnd = Clock::now();
-        
+       
         auto distanceLayersBeg = Clock::now();
+        
         BuildDistanceToClosestVoxel();
         std::cout<<"Closest\n";
         BuildDistanceLayerBaseline();
@@ -1081,6 +1162,10 @@ struct World {
         BuildDistanceLayer(4);
         std::cout<<"4\n";
         auto distanceLayersEnd = Clock::now();
+        
+         auto occupancyBeg = Clock::now();
+        GenerateOccupancyMasks(); //EASILY THE SLOWEST AND LEAST SCALABLE FUNC
+        auto occupancyOld = Clock::now();
         #pragma omp parallel for collapse(3)
         for (int x = 0; x < WORLD_WIDTH/32; x++) {
             for (int y= 0 ; y < WORLD_HEIGHT/32; y++) {
@@ -1090,9 +1175,50 @@ struct World {
                 }
             }
         }
-        auto occupancyBeg = Clock::now();
-        GenerateOccupancyMasks(); //EASILY THE SLOWEST AND LEAST SCALABLE FUNC
-        auto occupancyOld = Clock::now();
+        
+        if (dedupe) {
+            bool* deduped = (bool*)MemAlloc((WORLD_WIDTH/32)*(WORLD_HEIGHT/32)*(WORLD_DEPTH/32));
+            memset(deduped,false,(WORLD_WIDTH/32)*(WORLD_HEIGHT/32)*(WORLD_DEPTH/32));
+            int original = 0;
+            int total = 0;
+            for (int x = 0; x < WORLD_WIDTH/32; x++) {
+                for (int y= 0 ; y < WORLD_HEIGHT/32; y++) {
+                    for (int z = 0; z < WORLD_DEPTH/32; z++) {
+                        if (voxelChunks[x][y][z].containsBlocks) total+=1;
+                        if (!voxelChunks[x][y][z].containsBlocks || deduped[WIDX(x,y,z,WORLD_WIDTH/32,WORLD_HEIGHT/32)]) continue;
+                        original++;
+                        for (int dx = 0; dx < WORLD_WIDTH/32; dx++) {
+                            for (int dy= 0 ; dy < WORLD_HEIGHT/32; dy++) {
+                                for (int dz = 0; dz < WORLD_DEPTH/32; dz++) {
+                                    if (dx==x && dy==y && dz==z) continue;
+                                    if (deduped[WIDX(dx,dy,dz,WORLD_WIDTH/32,WORLD_HEIGHT/32)] || !voxelChunks[dx][dy][dz].containsBlocks) continue;
+                                    if (voxelChunks[dx][dy][dz].chunkedPallete!=voxelChunks[x][y][z].chunkedPallete) continue;
+                                    int totalSize = voxelChunks[dx][dy][dz].size*voxelChunks[dx][dy][dz].size*voxelChunks[dx][dy][dz].size;
+                                    if (voxelChunks[dx][dy][dz].chunkedPallete) totalSize/=2;
+
+                                    bool similar = true;
+                                    if (voxelChunks[dx][dy][dz].lod==voxelChunks[x][y][z].lod) {
+                                        for (int i = 0; i < totalSize; i++) {
+                                            if (voxelChunks[dx][dy][dz].voxels[i]!=voxelChunks[x][y][z].voxels[i]) {
+                                                similar = false;
+                                            }
+                                        }
+                                    }
+                                    else similar = false;
+                                    if (similar) {
+                                        deduped[WIDX(dx,dy,dz,WORLD_WIDTH/32,WORLD_HEIGHT/32)] = true;
+                                        free(voxelChunks[dx][dy][dz].voxels);
+                                        voxelChunks[dx][dy][dz].voxels = voxelChunks[x][y][z].voxels;
+                                    }
+                                }
+                            }
+                        }           
+                    }
+                }
+            }
+            free(deduped);
+            std::cout<<total<<" "<<original<<"\n";
+        }
         
         GetMemoryUsageBytes();
         std::cout<<"terrain gen: "<<ms(terrainBeg,terrainEnd)<<" distance fields: "<<ms(distanceLayersBeg,distanceLayersEnd)<<" occupancy: "<<ms(occupancyBeg,occupancyOld)<<"\n";

@@ -15,7 +15,7 @@
 #include <atomic>
 using Clock = std::chrono::steady_clock;
 const Color colors[255] = {SKYBLUE,GREEN,{uint8_t(GREEN.r*0.9),uint8_t(GREEN.g*0.9),uint8_t(GREEN.b*0.9),255},BROWN,DARKGREEN,GRAY,YELLOW,BLUE, LIME,PINK};
-       
+
 constexpr int BUFFER_WIDTH = 1920;
 constexpr int BUFFER_HEIGHT = 1080;
 constexpr int BUFFER_SIZE = BUFFER_WIDTH * BUFFER_HEIGHT;
@@ -59,6 +59,7 @@ class App {
     Vector3 *directionStorage;
     World *world;
     Hit hits[BUFFER_SIZE];
+    Hit hitRepr[BUFFER_SIZE];
     int *stepStorage;
     int *oldStep;
     float *oldDistance;
@@ -90,9 +91,9 @@ class App {
             oldStep[i] = 0;
             oldDistance[i] = 0;
         }
-        SCALE = 1.5;
-        width = 800/SCALE;
-        height = 800/SCALE;
+        //SCALE = 1.5;
+        //width = 800/SCALE;
+        //height = 800/SCALE;
         
     }
     void Render() {
@@ -128,7 +129,6 @@ class App {
         auto dirEnd = Clock::now();
         constexpr int LOW_SCALE = 4;
         constexpr float CONE_GUARD = 1.5f;
-
     auto lowrenderStart = Clock::now();
         if (frame%2==0) {
             std::fill(oldDistance, oldDistance + BUFFER_SIZE, 0.0f);
@@ -182,12 +182,11 @@ class App {
                         const int lx = ix & 31;
                         const int ly = iy & 31;
                         const int lz = iz & 31;
-
                         const float jump = std::max({
-                            STEP(chunk.distanceToClosestVoxel, 32.0f),
-                            STEP(chunk.distance16[IDX(lx >> 4,ly >> 4,lz >> 4,2)], 16.0f),
-                            STEP(chunk.GetDistance8(IDX(lx >> 3,ly >> 3,lz >> 3,4)), 8.0f),
-                            STEP(chunk.GetDistance4(IDX(lx >> 2, ly >> 2, lz >> 2, 8)), 4.0f)
+                            STEP(chunk.distanceToClosestVoxel, 32),
+                            STEP(chunk.distance16[IDX(lx >> 4, ly >> 4, lz >> 4, 2)], 16),
+                            STEP(GET_DISTANCE8(chunk,IDX(lx >> 3, ly >> 3, lz >> 3, 4)), 8),
+                            STEP(GET_DISTANCE4(chunk,IDX(lx >> 2, ly >> 2, lz >> 2, 8)), 4)
                         });
                         const float coneRadius = t * coneSlope + CONE_GUARD;
                         const float remainingSafe = jump - coneRadius;
@@ -211,17 +210,90 @@ class App {
         }
         auto lowrenderEnd = Clock::now();
         
-        auto renderStart = Clock::now();
-        int actuallyTraced = 0;
-
+        auto reprBeg = Clock::now();
+        const float m0  = matView.m0;
+        const float m1  = matView.m1;
+        const float m2  = matView.m2;
+        const float m4  = matView.m4;
+        const float m5  = matView.m5;
+        const float m6  = matView.m6;
+        const float m8  = matView.m8;
+        const float m9  = matView.m9;
+        const float m10 = matView.m10;
+        const float m12 = matView.m12;
+        const float m13 = matView.m13;
+        const float m14 = matView.m14;
         #pragma omp parallel for collapse(2)
         for (int x = 0; x < width; x+=1) {
             for (int y = 0; y < height; y+=1) {
                 int idx = (y * imageBuffer.width + x) * 3;
                 int pixelIndex = x * BUFFER_HEIGHT + y;
+                if ((x + y + frame) % 2 == 0) continue;
+                if (hits[pixelIndex].viable) {
+                    
+                    const float px = hits[pixelIndex].x;
+                    const float py = hits[pixelIndex].y;
+                    const float pz = hits[pixelIndex].z;
 
-                hits[pixelIndex].viable = false;
+                    float viewX =m0 * px +m4 * py +m8 * pz +m12;
+                    float viewY =m1 * px +m5 * py +m9 * pz +m13;
+                    float viewZ =m2 * px +m6 * py +m10 * pz +m14;
+
+                    float invW = -1.0f / viewZ;
+
+                    float projScale = 1.73205f;
+
+                    float ndcX = viewX * projScale * invW;
+                    float ndcY = -viewY * projScale * invW;
+
+                    Vector2 pp = {
+                        (ndcX + 1.0f) * 400,
+                        (ndcY + 1.0f) * 400
+                    };
+                    if (pp.x>=0 && pp.y>=0 && pp.x<width && pp.y<height) {
+                        hitRepr[(int)(int(pp.x) * BUFFER_HEIGHT + int(pp.y))] = hits[pixelIndex];
+                        
+                    }
+                } 
                 hits[pixelIndex].traced = false;
+                hits[pixelIndex].viable = false;
+                
+            }
+        }
+        #pragma omp parallel for collapse(2)
+        for (int x = 0; x < width; x+=1) {
+            for (int y = 0; y < height; y+=1) {
+                int pixelIndex = x * BUFFER_HEIGHT + y;
+                if ((x + y + frame) % 2 == 0) continue;
+                if (hitRepr[pixelIndex].viable) {
+                    hits[pixelIndex] = hitRepr[pixelIndex];
+                    hitRepr[pixelIndex].viable = false;
+                }
+                
+            }
+        }
+        /*
+ #pragma omp parallel for collapse(2)
+        for (int x = 0; x < width; x+=1) {
+            for (int y = 0; y < height; y+=1) {
+                int idx = (y * imageBuffer.width + x) * 3;
+                int pixelIndex = x * BUFFER_HEIGHT + y;
+                if ((x + y + frame) % 2 == 0) continue;
+                hits[pixelIndex].traced = false;
+                hits[pixelIndex].viable = false;
+           }
+        }*/
+        auto renderStart = Clock::now();
+        
+        //std::cout<<"m0: "<<matView.m0<<" m4: "<<matView.m4<<"m8:"<<matView.m8<<" m12:"<<matView.m12<<"\n";
+        //std::cout<<"m1: "<<matView.m1<<" m5: "<<matView.m5<<"m9:"<<matView.m9<<" m13:"<<matView.m13<<"\n";
+        //std::cout<<"m2: "<<matView.m2<<" m6: "<<matView.m6<<"m0:"<<matView.m10<<" m14:"<<matView.m14<<"\n";
+        #pragma omp parallel for collapse(2)
+        for (int x = 0; x < width; x+=1) {
+            for (int y = 0; y < height; y+=1) {
+                int idx = (y * imageBuffer.width + x) * 3;
+                int pixelIndex = x * BUFFER_HEIGHT + y;
+                if (hits[pixelIndex].traced) continue;
                 if ((x + y + frame) % 2 == 0) continue;
                 ((unsigned char *)imageBuffer.data)[idx] = SKYCOLOR.r;
                 ((unsigned char *)imageBuffer.data)[idx + 1] = SKYCOLOR.g;
@@ -261,8 +333,7 @@ class App {
                         if (world->traversalChunks[cx][cy][cz].occupancy[lodIndex >> 6] & (1ull << (lodIndex & 63))) {
                             uint8_t type;
                             if (world->voxelChunks[cx][cy][cz].palletized==0) {
-                                type = world->voxelChunks[cx][cy][cz].voxels[lodIndex];
-                                
+                                type = READ_VOXEL(world->voxelChunks[cx][cy][cz], lodIndex);
                             }
                             else type = world->voxelChunks[cx][cy][cz].palletized;
                             hits[pixelIndex].viable = true;
@@ -328,7 +399,6 @@ class App {
                 oldDistance[pixelIndex] = t*0.9;
             }
         }
-        std::cout<<actuallyTraced<<"\n";
         auto renderEnd = Clock::now();
         auto lightStart = Clock::now();
         int r = 0;
@@ -449,8 +519,8 @@ class App {
                             if (world->traversalChunks[cx][cy][cz].occupancy[lodIndex >> 6] & (1ull << (lodIndex & 63))) {
                                 uint8_t typer;
                                 if (world->voxelChunks[cx][cy][cz].palletized==0) {
-                                    typer = world->voxelChunks[cx][cy][cz].voxels[lodIndex];
-                                    
+                                    typer = READ_VOXEL(world->voxelChunks[cx][cy][cz], lodIndex);
+
                                 }
                                 else typer = world->voxelChunks[cx][cy][cz].palletized;
                                 if (voxelMetaData[typer].translucent) {
@@ -487,10 +557,10 @@ class App {
                         else shadowT = 1;
                         TraversalChunk& chunk = world->traversalChunks[cx][cy][cz];
                         float jump = std::max({
-                            STEP(chunk.distanceToClosestVoxel,  std::max(32,lod)),
-                            STEP(chunk.distance16[IDX(lx >> 4, ly >> 4, lz >> 4, 2)], std::max(16,lod)),
-                            STEP(chunk.GetDistance8(IDX(lx >> 3, ly >> 3, lz >> 3, 4)),  std::max(8,lod)),
-                            STEP(chunk.GetDistance4(IDX(lx >> 2, ly >> 2, lz >> 2, 8)),  std::max(4,lod))
+                            STEP(chunk.distanceToClosestVoxel, std::max(32, lod)),
+                            STEP(chunk.distance16[IDX(lx >> 4, ly >> 4, lz >> 4, 2)], std::max(16, lod)),
+                            STEP(GET_DISTANCE8(chunk,IDX(lx >> 3, ly >> 3, lz >> 3, 4)), std::max(8, lod)),
+                            STEP(GET_DISTANCE4(chunk,IDX(lx >> 2, ly >> 2, lz >> 2, 8)), std::max(4, lod))
                         });
                         jump = std::max(jump,1.0f);
                         if (jump > 0.0f) {
@@ -550,7 +620,7 @@ class App {
                             if (world->traversalChunks[cx][cy][cz].occupancy[lodIndex >> 6] & (1ull << (lodIndex & 63))) {
                                 uint8_t typer;
                                 if (world->voxelChunks[cx][cy][cz].palletized==0) {
-                                    typer = world->voxelChunks[cx][cy][cz].voxels[lodIndex];
+                                    typer = READ_VOXEL(world->voxelChunks[cx][cy][cz], lodIndex);
                                 }
                                 else typer = world->voxelChunks[cx][cy][cz].palletized;
                                 mixStrength = 0.5f;
@@ -568,10 +638,10 @@ class App {
                             }
                         }
                         float jump = std::max({
-                            STEP(chunk.distanceToClosestVoxel,  std::max(32,lod)),
-                            STEP(chunk.distance16[IDX(lx >> 4, ly >> 4, lz >> 4, 2)], std::max(16,lod)),
-                            STEP(chunk.GetDistance8(IDX(lx >> 3, ly >> 3, lz >> 3, 4)),  std::max(8,lod)),
-                            STEP(chunk.GetDistance4(IDX(lx >> 2, ly >> 2, lz >> 2, 8)),  std::max(4,lod))
+                            STEP(chunk.distanceToClosestVoxel, std::max(32, lod)),
+                            STEP(chunk.distance16[IDX(lx >> 4, ly >> 4, lz >> 4, 2)], std::max(16, lod)),
+                            STEP(GET_DISTANCE8(chunk,IDX(lx >> 3, ly >> 3, lz >> 3, 4)), std::max(8, lod)),
+                            STEP(GET_DISTANCE4(chunk,IDX(lx >> 2, ly >> 2, lz >> 2, 8)), std::max(4, lod))
                         });
                         jump = std::max(jump,1.0f);
                         if (jump > 0.0f) {
@@ -606,14 +676,16 @@ class App {
         prevFPS = GetFPS();
         double dirTime = ms(dirStart, dirEnd);
         double renderTime = ms(renderStart, renderEnd);
+        double reprTime = ms(reprBeg, renderStart);
         double lightTime = ms(lightStart, lightEnd);
         
         double lowrenderTime = ms(lowrenderStart, lowrenderEnd);
         std::cout
         << "Dir: "       << dirTime       << " ms | "
         << "Render: "    << renderTime    << " ms | "
-        << "LowRender: " << lowrenderTime << " ms | "
-        << "Light: "     << lightTime     << " ms \n";
+        << "Repr: "    << reprTime    << " ms | "
+         << "LowRender: " << lowrenderTime << " ms | "
+         << "Light: "     << lightTime     << " ms \n";
     }
     void Run() {
         int dvdX = 0;
@@ -762,7 +834,7 @@ class App {
                 
             }
             else if (worldFinished==1) {
-                SetTargetFPS(60);
+                //SetTargetFPS(60);
                 if (dvdX>width || dvdX<0) dvdXChange *= -1;
                 if (dvdY>height || dvdY<0) dvdYChange *= -1; 
                 dvdX+=dvdXChange;
@@ -837,6 +909,7 @@ class App {
                 Button(0,100,512,"512x512");
                 Button(0,160,1024,"1024x1024");
                 Button(0,220,2048,"2048x2048");
+                Button(0,220,4096,"4096x4096");
                 EndDrawing();
             }
             
