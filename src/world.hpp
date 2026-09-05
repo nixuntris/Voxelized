@@ -93,7 +93,8 @@ enum WorldType {
     WORLD_PLAINS = 0,
     WORLD_MOUNTAINS,
     WORLD_DESERT,
-    WORLD_ISLANDS
+    WORLD_ISLANDS,
+    CLOUD
 };
 struct VoxelChunk {
     uint8_t *voxels;

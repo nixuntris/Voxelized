@@ -14,12 +14,13 @@
 #include <thread>
 #include <atomic>
 using Clock = std::chrono::steady_clock;
-const Color colors[255] = {SKYBLUE,GREEN,{uint8_t(GREEN.r*0.9),uint8_t(GREEN.g*0.9),uint8_t(GREEN.b*0.9),255},BROWN,DARKGREEN,GRAY,YELLOW,BLUE, LIME,PINK};
+const Color colors[255] = {SKYBLUE,GREEN,{uint8_t(GREEN.r*0.9),uint8_t(GREEN.g*0.9),uint8_t(GREEN.b*0.9),255},BROWN,DARKGREEN,GRAY,YELLOW,BLUE, LIME,PINK, WHITE};
 
 constexpr int BUFFER_WIDTH = 1920;
 constexpr int BUFFER_HEIGHT = 1080;
 constexpr int BUFFER_SIZE = BUFFER_WIDTH * BUFFER_HEIGHT;
 int baseFPS = 100;
+bool reproject = false;
 Vector3 sunDirection = Vector3Normalize((Vector3){ 0.8f, 0.2f, 0.2f });
 Color SKYCOLOR = SKYBLUE;
 float sunDirSX = copysignf(1.0f, sunDirection.x);
@@ -91,10 +92,103 @@ class App {
             oldStep[i] = 0;
             oldDistance[i] = 0;
         }
-        //SCALE = 1.5;
-        //width = 800/SCALE;
-        //height = 800/SCALE;
+        SCALE = 4;
+        width = 800/SCALE;
+        height = 800/SCALE;
         
+    }
+    void RunClouds() {
+        DisableCursor();
+        SetTargetFPS(60);
+        camera.position = (Vector3){ WORLD_WIDTH/2,60,WORLD_DEPTH/2 };
+        uint8_t *cloudNoise = GenImagePerlinNoiseOptimized(1024,1024,0,0,16);       
+        uint8_t *cloudHeight = GenImagePerlinNoiseOptimized(1024,1024,0,0,64);       
+        while (!WindowShouldClose()) {
+            frame++;
+            Matrix matView = MatrixLookAt(camera.position, camera.target, camera.up);
+            Matrix viewInv = MatrixInvert(matView);
+            BeginDrawing();
+            ClearBackground(SKYCOLOR);
+            BeginMode3D(camera);
+            DrawGrid(10,1);
+            EndMode3D();
+            UpdateCamera(&camera,CAMERA_FREE);
+            #pragma omp parallel for
+            for (int y = 0; y < height; y++) {
+                alignas(32) float xs[8], ys[8], zs[8];
+
+            int x = 0;
+                for (; x + 7 < width; x += 8) {
+                    GetScreenToWorldRay8((float)x, (float)y, width, height, viewInv, xs, ys, zs);
+                    for (int i = 0; i < 8; i++) {
+                        int px = x + i;
+                        directionStorage[px * BUFFER_HEIGHT + y] = { xs[i], ys[i], zs[i] };
+                    }
+                }
+
+            if (x < width) {
+                    const int tailX = width - 8;
+                    GetScreenToWorldRay8((float)tailX, (float)y, width, height, viewInv, xs, ys, zs);
+                    for (int i = 0; i < 8; i++) {
+                        int px = tailX + i;
+                        directionStorage[px * BUFFER_HEIGHT + y] = { xs[i], ys[i], zs[i] };
+                    }
+                }
+            }
+            #pragma omp parallel for collapse(2)
+            for (int x = 0; x < width; x+=1) {
+                for (int y = 0; y < height; y+=1) {
+                    int idx = (y * imageBuffer.width + x) * 3;
+                    int pixelIndex = x * BUFFER_HEIGHT + y;
+                    if ((x + y + frame) % 2 == 0) continue;
+                    ((unsigned char *)imageBuffer.data)[idx] = SKYCOLOR.r;
+                    ((unsigned char *)imageBuffer.data)[idx + 1] = SKYCOLOR.g;
+                    ((unsigned char *)imageBuffer.data)[idx + 2] = SKYCOLOR.b;
+
+                    Vector3 direction = Vector3Normalize(directionStorage[pixelIndex]);
+                    if (direction.y<0 && camera.target.y<100) continue;
+
+                    float voxelX = camera.position.x; 
+                    float voxelY = camera.position.y; 
+                    float voxelZ = camera.position.z; 
+                    float cloudStrength = 0.0f;
+                    for (int i = 0; i < 4096; i++) {
+                        voxelX += direction.x;
+                        voxelY += direction.y;
+                        voxelZ += direction.z;
+                        int nx = ((int)voxelX % 1024 + 1024) % 1024;
+                        int nz = ((int)voxelZ % 1024 + 1024) % 1024;
+                        int noiseValue = cloudNoise[nx + nz * 1024];
+                        int heightValue = cloudHeight[nx + nz * 1024];
+                        
+                        int cloudHeight = 1 + (heightValue * 10) / 256;
+                        int cloudOffset = 200;
+                        const int cutoff = 140;
+
+                        if (noiseValue > cutoff) {
+                            if (voxelY > 100- cloudHeight+cloudOffset && voxelY < 100 + cloudHeight+cloudOffset) {
+                                cloudStrength += float(noiseValue)/2300.0f;
+                                if (cloudStrength>1) cloudStrength = 1;
+                            }
+                        }
+                    }
+                    ((unsigned char *)imageBuffer.data)[idx]     = 255*cloudStrength+SKYCOLOR.r*(1-cloudStrength);
+                    ((unsigned char *)imageBuffer.data)[idx + 1] = 255*cloudStrength+SKYCOLOR.g*(1-cloudStrength);
+                    ((unsigned char *)imageBuffer.data)[idx + 2] = 255*cloudStrength+SKYCOLOR.b*(1-cloudStrength);
+
+                }
+            }
+           
+            UpdateTexture(displayBuffer, imageBuffer.data);
+                    
+            DrawTexturePro(displayBuffer, 
+                (Rectangle){0, 0, (float)width, (float)height},
+                (Rectangle){0, 0, width*SCALE, height*SCALE},
+                (Vector2){0, 0}, 0, WHITE);
+                
+            DrawFPS(0,0);
+            EndDrawing();
+        }
     }
     void Render() {
         auto totalStart = Clock::now();
@@ -211,78 +305,81 @@ class App {
         auto lowrenderEnd = Clock::now();
         
         auto reprBeg = Clock::now();
-        const float m0  = matView.m0;
-        const float m1  = matView.m1;
-        const float m2  = matView.m2;
-        const float m4  = matView.m4;
-        const float m5  = matView.m5;
-        const float m6  = matView.m6;
-        const float m8  = matView.m8;
-        const float m9  = matView.m9;
-        const float m10 = matView.m10;
-        const float m12 = matView.m12;
-        const float m13 = matView.m13;
-        const float m14 = matView.m14;
-        #pragma omp parallel for collapse(2)
-        for (int x = 0; x < width; x+=1) {
-            for (int y = 0; y < height; y+=1) {
-                int idx = (y * imageBuffer.width + x) * 3;
-                int pixelIndex = x * BUFFER_HEIGHT + y;
-                if ((x + y + frame) % 2 == 0) continue;
-                if (hits[pixelIndex].viable) {
-                    
-                    const float px = hits[pixelIndex].x;
-                    const float py = hits[pixelIndex].y;
-                    const float pz = hits[pixelIndex].z;
-
-                    float viewX =m0 * px +m4 * py +m8 * pz +m12;
-                    float viewY =m1 * px +m5 * py +m9 * pz +m13;
-                    float viewZ =m2 * px +m6 * py +m10 * pz +m14;
-
-                    float invW = -1.0f / viewZ;
-
-                    float projScale = 1.73205f;
-
-                    float ndcX = viewX * projScale * invW;
-                    float ndcY = -viewY * projScale * invW;
-
-                    Vector2 pp = {
-                        (ndcX + 1.0f) * 400,
-                        (ndcY + 1.0f) * 400
-                    };
-                    if (pp.x>=0 && pp.y>=0 && pp.x<width && pp.y<height) {
-                        hitRepr[(int)(int(pp.x) * BUFFER_HEIGHT + int(pp.y))] = hits[pixelIndex];
+        if (reproject) {
+            const float m0  = matView.m0;
+            const float m1  = matView.m1;
+            const float m2  = matView.m2;
+            const float m4  = matView.m4;
+            const float m5  = matView.m5;
+            const float m6  = matView.m6;
+            const float m8  = matView.m8;
+            const float m9  = matView.m9;
+            const float m10 = matView.m10;
+            const float m12 = matView.m12;
+            const float m13 = matView.m13;
+            const float m14 = matView.m14;
+            #pragma omp parallel for collapse(2)
+            for (int x = 0; x < width; x+=1) {
+                for (int y = 0; y < height; y+=1) {
+                    int idx = (y * imageBuffer.width + x) * 3;
+                    int pixelIndex = x * BUFFER_HEIGHT + y;
+                    if ((x + y + frame) % 2 == 0) continue;
+                    if (hits[pixelIndex].viable) {
                         
-                    }
-                } 
-                hits[pixelIndex].traced = false;
-                hits[pixelIndex].viable = false;
-                
-            }
-        }
-        #pragma omp parallel for collapse(2)
-        for (int x = 0; x < width; x+=1) {
-            for (int y = 0; y < height; y+=1) {
-                int pixelIndex = x * BUFFER_HEIGHT + y;
-                if ((x + y + frame) % 2 == 0) continue;
-                if (hitRepr[pixelIndex].viable) {
-                    hits[pixelIndex] = hitRepr[pixelIndex];
-                    hitRepr[pixelIndex].viable = false;
+                        const float px = hits[pixelIndex].x;
+                        const float py = hits[pixelIndex].y;
+                        const float pz = hits[pixelIndex].z;
+
+                        float viewX =m0 * px +m4 * py +m8 * pz +m12;
+                        float viewY =m1 * px +m5 * py +m9 * pz +m13;
+                        float viewZ =m2 * px +m6 * py +m10 * pz +m14;
+
+                        float invW = -1.0f / viewZ;
+
+                        float projScale = 1.73205f;
+
+                        float ndcX = viewX * projScale * invW;
+                        float ndcY = -viewY * projScale * invW;
+
+                        Vector2 pp = {
+                            (ndcX + 1.0f) * 400,
+                            (ndcY + 1.0f) * 400
+                        };
+                        if (pp.x>=0 && pp.y>=0 && pp.x<width && pp.y<height) {
+                            hitRepr[(int)(int(pp.x) * BUFFER_HEIGHT + int(pp.y))] = hits[pixelIndex];
+                            
+                        }
+                    } 
+                    hits[pixelIndex].traced = false;
+                    hits[pixelIndex].viable = false;
+                    
                 }
-                
+            }
+            #pragma omp parallel for collapse(2)
+            for (int x = 0; x < width; x+=1) {
+                for (int y = 0; y < height; y+=1) {
+                    int pixelIndex = x * BUFFER_HEIGHT + y;
+                    if ((x + y + frame) % 2 == 0) continue;
+                    if (hitRepr[pixelIndex].viable) {
+                        hits[pixelIndex] = hitRepr[pixelIndex];
+                        hitRepr[pixelIndex].viable = false;
+                    }
+                    
+                }
             }
         }
-        /*
- #pragma omp parallel for collapse(2)
-        for (int x = 0; x < width; x+=1) {
-            for (int y = 0; y < height; y+=1) {
-                int idx = (y * imageBuffer.width + x) * 3;
-                int pixelIndex = x * BUFFER_HEIGHT + y;
-                if ((x + y + frame) % 2 == 0) continue;
-                hits[pixelIndex].traced = false;
-                hits[pixelIndex].viable = false;
-           }
-        }*/
+        else {
+            #pragma omp parallel for collapse(2)
+            for (int x = 0; x < width; x+=1) {
+                for (int y = 0; y < height; y+=1) {
+                    int idx = (y * imageBuffer.width + x) * 3;
+                    int pixelIndex = x * BUFFER_HEIGHT + y;
+                    if ((x + y + frame) % 2 == 0) continue;
+                    hits[pixelIndex].traced = false;
+                    hits[pixelIndex].viable = false;
+            }
+            }
+        }
         auto renderStart = Clock::now();
         
         //std::cout<<"m0: "<<matView.m0<<" m4: "<<matView.m4<<"m8:"<<matView.m8<<" m12:"<<matView.m12<<"\n";
@@ -401,46 +498,178 @@ class App {
         }
         auto renderEnd = Clock::now();
         auto lightStart = Clock::now();
+        if (IsKeyPressed(KEY_F)) reproject = !reproject;
         int r = 0;
-        for (int x = 0; x < width; x+=2) {
-            for (int y = 0; y < height; y+=2) {
-                int pixelIndex = x * BUFFER_HEIGHT + y;
-                if ((x+y+frame)%2==0) continue;
-                if (!hits[pixelIndex].viable) continue;
-                
-                int origVoxelX = (int)hits[pixelIndex].x;
-                int origVoxelY = (int)hits[pixelIndex].y;
-                int origVoxelZ = (int)hits[pixelIndex].z;
-                int dx = origVoxelX >> 5;
-                int dy = origVoxelY >> 5;
-                int dz = origVoxelZ >> 5;
-                if (!world->voxelChunks[dx][dy][dz].containsLight) {
-                    ids[r]= {float(dx),float(dy),float(dz)};
-                    world->voxelChunks[dx][dy][dz].containsLight = true;
-                    r+=1;
+        if (frame%3==0) {
+
+            for (int x = 0; x < width; x+=2) {
+                for (int y = 0; y < height; y+=2) {
+                    int pixelIndex = x * BUFFER_HEIGHT + y;
+                    if ((x+y+frame)%2==0) continue;
+                    if (!hits[pixelIndex].viable) continue;
+                    
+                    int origVoxelX = (int)hits[pixelIndex].x;
+                    int origVoxelY = (int)hits[pixelIndex].y;
+                    int origVoxelZ = (int)hits[pixelIndex].z;
+                    int dx = origVoxelX >> 5;
+                    int dy = origVoxelY >> 5;
+                    int dz = origVoxelZ >> 5;
+                    if (!world->voxelChunks[dx][dy][dz].containsLight) {
+                        ids[r]= {float(dx),float(dy),float(dz)};
+                        world->voxelChunks[dx][dy][dz].containsLight = true;
+                        r+=1;
+                    }
+                    
                 }
+            }
+            #pragma omp parallel for
+            for (int t = 0; t < r; t++) {
+                int dx = ids[t].x;
+                int dy = ids[t].y;
+                int dz = ids[t].z;
                 
+                int size = 32/world->traversalChunks[dx][dy][dz].buildID;
+                size/=shadowQuality;
+                world->voxelChunks[dx][dy][dz].voxelLightValueR = (uint8_t*)MemAlloc(size*size*size); 
+                world->voxelChunks[dx][dy][dz].voxelLightValueG = (uint8_t*)MemAlloc(size*size*size); 
+                world->voxelChunks[dx][dy][dz].voxelLightValueB = (uint8_t*)MemAlloc(size*size*size); 
+                for (int i = 0; i < size*size*size; i++) {
+                    world->voxelChunks[dx][dy][dz].voxelLightValueR[i] = 0;
+                    world->voxelChunks[dx][dy][dz].voxelLightValueG[i] = 0;
+                    world->voxelChunks[dx][dy][dz].voxelLightValueB[i] = 0;
+                }
+            }
+            #pragma omp parallel for collapse(2)
+            for (int x = 0; x < width; x++) {
+                for (int y = 0; y < height; y++) {
+                    int pixelIndex = x * BUFFER_HEIGHT + y;
+                    if (!hits[pixelIndex].viable) continue;
+                    if ((x + y + frame) % 2 == 0) continue;
+                    uint8_t type = hits[pixelIndex].type;
+                    if (type==0) continue;;
+                    float ambienceEffect = 0.36;
+                    float strengthR = 1.0f-ambienceEffect+(float(SKYCOLOR.r)/255.0f)*ambienceEffect;
+                    float strengthG = 1.0f-ambienceEffect+(float(SKYCOLOR.g)/255.0f)*ambienceEffect;
+                    float strengthB = 1.0f-ambienceEffect+(float(SKYCOLOR.b)/255.0f)*ambienceEffect;
+                    
+                    int origVoxelX = (int)hits[pixelIndex].x;
+                    int origVoxelY = (int)hits[pixelIndex].y;
+                    int origVoxelZ = (int)hits[pixelIndex].z;
+                    int dx = origVoxelX >> 5;
+                    int dy = origVoxelY >> 5;
+                    int dz = origVoxelZ >> 5;
+                    
+                    int origLod = world->voxelChunks[dx][dy][dz].lod;
+                    int origSize = world->voxelChunks[dx][dy][dz].size/shadowQuality;
+                    origLod*=shadowQuality;
+                    int id = IDX((origVoxelX % 32) / origLod, (origVoxelY % 32) / origLod, (origVoxelZ % 32) / origLod, origSize);
+                    if (!world->voxelChunks[dx][dy][dz].containsLight) continue;
+                    uint8_t lightValR = world->voxelChunks[dx][dy][dz].voxelLightValueR[id];
+                    uint8_t lightValG = world->voxelChunks[dx][dy][dz].voxelLightValueG[id];
+                    uint8_t lightValB = world->voxelChunks[dx][dy][dz].voxelLightValueB[id];
+
+                    if (lightValR != 0) {
+                        strengthR = float(lightValR - 1) / 253.0f;
+                        strengthG = float(lightValG - 1) / 253.0f;
+                        strengthB = float(lightValB - 1) / 253.0f;
+                    } else {
+                        float shadowT = 0.0f;
+                        float shadowX = hits[pixelIndex].x;
+                        float shadowY = hits[pixelIndex].y;
+                        float shadowZ = hits[pixelIndex].z;
+                        shadowX += sunDirection.x * 1.5f;
+                        shadowY += sunDirection.y * 1.5f;
+                        shadowZ += sunDirection.z * 1.5f;
+                        shadowT = 0.0f;
+                        
+                        while (shadowT < 256.0f) {
+                            if (shadowX < 0.0f || shadowY < 0.0f || shadowZ < 0.0f ||
+                                shadowX >= WORLD_WIDTH || shadowY >= WORLD_HEIGHT || shadowZ >= WORLD_DEPTH) {
+                                strengthR = 1.0f;
+                                strengthG = 1.0f;
+                                strengthB = 1.0f;
+                                int dx = origVoxelX>>5;
+                                int dy = origVoxelY>>5;
+                                int dz = origVoxelZ>>5;
+                                int id = IDX((origVoxelX % 32) / origLod, (origVoxelY % 32) / origLod, (origVoxelZ % 32) / origLod, origSize);
+                                world->voxelChunks[dx][dy][dz].voxelLightValueR[id] = 255;
+                                world->voxelChunks[dx][dy][dz].voxelLightValueG[id] = 255;
+                                world->voxelChunks[dx][dy][dz].voxelLightValueB[id] = 255;
+                                
+                                break;
+                            }
+
+                            int ix = (int)shadowX;
+                            int iy = (int)shadowY;
+                            int iz = (int)shadowZ;
+                            int cx = ix >> 5;
+                            int cy = iy >> 5;
+                            int cz = iz >> 5;
+                            int lx = ix & 31;
+                            int ly = iy & 31;
+                            int lz = iz & 31;
+                            
+                            if (world->voxelChunks[cx][cy][cz].containsBlocks) {
+                                int lodr = world->voxelChunks[cx][cy][cz].lod; 
+                                int lodIndex = IDX(lx/lodr,ly/lodr,lz/lodr,world->voxelChunks[cx][cy][cz].size);
+                                if (world->traversalChunks[cx][cy][cz].occupancy[lodIndex >> 6] & (1ull << (lodIndex & 63))) {
+                                    uint8_t typer;
+                                    if (world->voxelChunks[cx][cy][cz].palletized==0) {
+                                        typer = READ_VOXEL(world->voxelChunks[cx][cy][cz], lodIndex);
+
+                                    }
+                                    else typer = world->voxelChunks[cx][cy][cz].palletized;
+                                    if (voxelMetaData[typer].translucent) {
+                                        strengthR *= voxelMetaData[typer].lightAbsorbR; 
+                                        strengthG *= voxelMetaData[typer].lightAbsorbG; 
+                                        strengthB *= voxelMetaData[typer].lightAbsorbB; 
+                                    }
+                                    else if (typer!=WATER) {
+                                        strengthR *= voxelMetaData[typer].lightAbsorbR;
+                                        strengthG *= voxelMetaData[typer].lightAbsorbG;
+                                        strengthB *= voxelMetaData[typer].lightAbsorbB;
+                                        uint8_t cachedValR = (uint8_t)((strengthR * 253.0f) + 1);
+                                        uint8_t cachedValG = (uint8_t)((strengthG * 253.0f) + 1);
+                                        uint8_t cachedValB = (uint8_t)((strengthB * 253.0f) + 1);
+                                        int dx = origVoxelX>>5;
+                                        int dy = origVoxelY>>5;
+                                        int dz = origVoxelZ>>5;
+                                        int id = IDX((origVoxelX % 32) / origLod, (origVoxelY % 32) / origLod, (origVoxelZ % 32) / origLod, origSize);
+                                        world->voxelChunks[dx][dy][dz].voxelLightValueR[id] = cachedValR;
+                                        world->voxelChunks[dx][dy][dz].voxelLightValueG[id] = cachedValG;
+                                        world->voxelChunks[dx][dy][dz].voxelLightValueB[id] = cachedValB;
+
+                                        break;    
+                                    }
+                                    
+                                }
+                            }
+                            
+                            int lod = 1;
+                            if (shadowT > LOD16_START) lod = 16;
+                            else if (shadowT > LOD8_START) lod = 8;
+                            else if (shadowT > LOD4_START) lod = 4;
+                            else if (shadowT > LOD2_START) lod = 2;
+                            else shadowT = 1;
+                            TraversalChunk& chunk = world->traversalChunks[cx][cy][cz];
+                            float jump = std::max({
+                                STEP(chunk.distanceToClosestVoxel, std::max(32, lod)),
+                                STEP(chunk.distance16[IDX(lx >> 4, ly >> 4, lz >> 4, 2)], std::max(16, lod)),
+                                STEP(GET_DISTANCE8(chunk,IDX(lx >> 3, ly >> 3, lz >> 3, 4)), std::max(8, lod)),
+                                STEP(GET_DISTANCE4(chunk,IDX(lx >> 2, ly >> 2, lz >> 2, 8)), std::max(4, lod))
+                            });
+                            jump = std::max(jump,1.0f);
+                            if (jump > 0.0f) {
+                                shadowT += jump;
+                                shadowX += sunDirection.x * jump;
+                                shadowY += sunDirection.y * jump;
+                                shadowZ += sunDirection.z * jump;
+                            } 
+                        }
+                    }
+                }
             }
         }
-        #pragma omp parallel for
-        for (int t = 0; t < r; t++) {
-            int dx = ids[t].x;
-            int dy = ids[t].y;
-            int dz = ids[t].z;
-            
-            int size = 32/world->traversalChunks[dx][dy][dz].buildID;
-            size/=shadowQuality;
-            world->voxelChunks[dx][dy][dz].voxelLightValueR = (uint8_t*)MemAlloc(size*size*size); 
-            world->voxelChunks[dx][dy][dz].voxelLightValueG = (uint8_t*)MemAlloc(size*size*size); 
-            world->voxelChunks[dx][dy][dz].voxelLightValueB = (uint8_t*)MemAlloc(size*size*size); 
-            for (int i = 0; i < size*size*size; i++) {
-                world->voxelChunks[dx][dy][dz].voxelLightValueR[i] = 0;
-                world->voxelChunks[dx][dy][dz].voxelLightValueG[i] = 0;
-                world->voxelChunks[dx][dy][dz].voxelLightValueB[i] = 0;
-            }
-            
-
-    }
         #pragma omp parallel for collapse(2)
         for (int x = 0; x < width; x++) {
             for (int y = 0; y < height; y++) {
@@ -465,122 +694,22 @@ class App {
                 int origSize = world->voxelChunks[dx][dy][dz].size/shadowQuality;
                 origLod*=shadowQuality;
                 int id = IDX((origVoxelX % 32) / origLod, (origVoxelY % 32) / origLod, (origVoxelZ % 32) / origLod, origSize);
-                
+                if (!world->voxelChunks[dx][dy][dz].containsLight) continue;
+                    
                 uint8_t lightValR = world->voxelChunks[dx][dy][dz].voxelLightValueR[id];
                 uint8_t lightValG = world->voxelChunks[dx][dy][dz].voxelLightValueG[id];
                 uint8_t lightValB = world->voxelChunks[dx][dy][dz].voxelLightValueB[id];
 
-                if (lightValR != 0 && lightValG != 0 && lightValB != 0) {
-                    if (lightValR != 1) {
-                        strengthR = float(lightValR - 1) / 253.0f;
-                        strengthG = float(lightValG - 1) / 253.0f;
-                        strengthB = float(lightValB - 1) / 253.0f;
-                    }
-                } else {
-                    float shadowT = 0.0f;
-                    float shadowX = hits[pixelIndex].x;
-                    float shadowY = hits[pixelIndex].y;
-                    float shadowZ = hits[pixelIndex].z;
-                    shadowX += sunDirection.x * 1.5f;
-                    shadowY += sunDirection.y * 1.5f;
-                    shadowZ += sunDirection.z * 1.5f;
-                    shadowT = 0.0f;
-                    
-                    while (shadowT < 256.0f) {
-                        if (shadowX < 0.0f || shadowY < 0.0f || shadowZ < 0.0f ||
-                            shadowX >= WORLD_WIDTH || shadowY >= WORLD_HEIGHT || shadowZ >= WORLD_DEPTH) {
-                            strengthR = 1.0f;
-                            strengthG = 1.0f;
-                            strengthB = 1.0f;
-                            int dx = origVoxelX>>5;
-                            int dy = origVoxelY>>5;
-                            int dz = origVoxelZ>>5;
-                            int id = IDX((origVoxelX % 32) / origLod, (origVoxelY % 32) / origLod, (origVoxelZ % 32) / origLod, origSize);
-                            world->voxelChunks[dx][dy][dz].voxelLightValueR[id] = 255;
-                            world->voxelChunks[dx][dy][dz].voxelLightValueG[id] = 255;
-                            world->voxelChunks[dx][dy][dz].voxelLightValueB[id] = 255;
-                            
-                            break;
-                        }
-
-                        int ix = (int)shadowX;
-                        int iy = (int)shadowY;
-                        int iz = (int)shadowZ;
-                        int cx = ix >> 5;
-                        int cy = iy >> 5;
-                        int cz = iz >> 5;
-                        int lx = ix & 31;
-                        int ly = iy & 31;
-                        int lz = iz & 31;
-                        
-                        if (world->voxelChunks[cx][cy][cz].containsBlocks) {
-                            int lodr = world->voxelChunks[cx][cy][cz].lod; 
-                            int lodIndex = IDX(lx/lodr,ly/lodr,lz/lodr,world->voxelChunks[cx][cy][cz].size);
-                            if (world->traversalChunks[cx][cy][cz].occupancy[lodIndex >> 6] & (1ull << (lodIndex & 63))) {
-                                uint8_t typer;
-                                if (world->voxelChunks[cx][cy][cz].palletized==0) {
-                                    typer = READ_VOXEL(world->voxelChunks[cx][cy][cz], lodIndex);
-
-                                }
-                                else typer = world->voxelChunks[cx][cy][cz].palletized;
-                                if (voxelMetaData[typer].translucent) {
-                                    strengthR *= voxelMetaData[typer].lightAbsorbR; 
-                                    strengthG *= voxelMetaData[typer].lightAbsorbG; 
-                                    strengthB *= voxelMetaData[typer].lightAbsorbB; 
-                                }
-                                else if (typer!=WATER) {
-                                    strengthR *= voxelMetaData[typer].lightAbsorbR;
-                                    strengthG *= voxelMetaData[typer].lightAbsorbG;
-                                    strengthB *= voxelMetaData[typer].lightAbsorbB;
-                                    uint8_t cachedValR = (uint8_t)((strengthR * 253.0f) + 1);
-                                    uint8_t cachedValG = (uint8_t)((strengthG * 253.0f) + 1);
-                                    uint8_t cachedValB = (uint8_t)((strengthB * 253.0f) + 1);
-                                    int dx = origVoxelX>>5;
-                                    int dy = origVoxelY>>5;
-                                    int dz = origVoxelZ>>5;
-                                    int id = IDX((origVoxelX % 32) / origLod, (origVoxelY % 32) / origLod, (origVoxelZ % 32) / origLod, origSize);
-                                    world->voxelChunks[dx][dy][dz].voxelLightValueR[id] = cachedValR;
-                                    world->voxelChunks[dx][dy][dz].voxelLightValueG[id] = cachedValG;
-                                    world->voxelChunks[dx][dy][dz].voxelLightValueB[id] = cachedValB;
-
-                                    break;    
-                                }
-                                
-                            }
-                        }
-                        
-                        int lod = 1;
-                        if (shadowT > LOD16_START) lod = 16;
-                        else if (shadowT > LOD8_START) lod = 8;
-                        else if (shadowT > LOD4_START) lod = 4;
-                        else if (shadowT > LOD2_START) lod = 2;
-                        else shadowT = 1;
-                        TraversalChunk& chunk = world->traversalChunks[cx][cy][cz];
-                        float jump = std::max({
-                            STEP(chunk.distanceToClosestVoxel, std::max(32, lod)),
-                            STEP(chunk.distance16[IDX(lx >> 4, ly >> 4, lz >> 4, 2)], std::max(16, lod)),
-                            STEP(GET_DISTANCE8(chunk,IDX(lx >> 3, ly >> 3, lz >> 3, 4)), std::max(8, lod)),
-                            STEP(GET_DISTANCE4(chunk,IDX(lx >> 2, ly >> 2, lz >> 2, 8)), std::max(4, lod))
-                        });
-                        jump = std::max(jump,1.0f);
-                        if (jump > 0.0f) {
-                            shadowT += jump;
-                            shadowX += sunDirection.x * jump;
-                            shadowY += sunDirection.y * jump;
-                            shadowZ += sunDirection.z * jump;
-                        } 
-                    }
+                if (lightValR != 0) {
+                    strengthR = float(lightValR - 1) / 253.0f;
+                    strengthG = float(lightValG - 1) / 253.0f;
+                    strengthB = float(lightValB - 1) / 253.0f;
                 }
-                
-                Color colorToMix = SKYBLUE;
+                Color colorToMix = SKYCOLOR;
                 float mixStrength = 0;
                 
                 if (voxelMetaData[type].reflective) {
                     mixStrength = 0.5f;                        
-                    int origVoxelX = (int)hits[pixelIndex].x;
-                    int origVoxelY = (int)hits[pixelIndex].y;
-                    int origVoxelZ = (int)hits[pixelIndex].z;
-                    
                     Vector3 direction = hits[pixelIndex].direction;
                     Vector3 reflected = Vector3Normalize(Vector3Subtract(
                         direction,
@@ -909,7 +1038,7 @@ class App {
                 Button(0,100,512,"512x512");
                 Button(0,160,1024,"1024x1024");
                 Button(0,220,2048,"2048x2048");
-                Button(0,220,4096,"4096x4096");
+                Button(0,280,4096,"4096x4096");
                 EndDrawing();
             }
             
@@ -921,5 +1050,5 @@ class App {
 
 int main() {
     App *app = new App;
-    app->Run();
+    app->RunClouds();
 }
