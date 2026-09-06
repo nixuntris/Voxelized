@@ -21,6 +21,7 @@ constexpr int BUFFER_HEIGHT = 1080;
 constexpr int BUFFER_SIZE = BUFFER_WIDTH * BUFFER_HEIGHT;
 int baseFPS = 100;
 bool reproject = false;
+bool renderClouds = true;
 Vector3 sunDirection = Vector3Normalize((Vector3){ 0.8f, 0.2f, 0.2f });
 Color SKYCOLOR = SKYBLUE;
 float sunDirSX = copysignf(1.0f, sunDirection.x);
@@ -188,6 +189,7 @@ class App {
                         const int lx = ix & 31;
                         const int ly = iy & 31;
                         const int lz = iz & 31;
+                        if (!world->voxelChunks[ix>>5][iy>>5][iz>>5].generated) break;
                         const float jump = std::max({
                             STEP(chunk.distanceToClosestVoxel, 32),
                             STEP(chunk.distance16[IDX(lx >> 4, ly >> 4, lz >> 4, 2)], 16),
@@ -333,6 +335,7 @@ class App {
                     int cx = voxelX / 32;
                     int cy = voxelY / 32;
                     int cz = voxelZ / 32;
+                    if (!world->voxelChunks[cx][cy][cz].generated) break;
                     if (world->voxelChunks[cx][cy][cz].containsBlocks) {
                         int lx = int(voxelX) % 32;
                         int ly = int(voxelY) % 32;
@@ -408,77 +411,81 @@ class App {
                 oldDistance[pixelIndex] = t*0.9;
             }
         }
-        #pragma omp parallel for collapse(2)
-        for (int x = 0; x < width/4; x+=1) {
-            for (int y = 0; y < height/4; y+=1) {
-                
-                int idx = (y * imageBuffer.width + x) * 4;
-                int pixelIndex = x * BUFFER_HEIGHT + y;
-                if ((x + y + frame) % 2 == 0) continue;
-                ((unsigned char *)imageCloudBuffer.data)[idx] = 0;
-                ((unsigned char *)imageCloudBuffer.data)[idx + 1] = 0;
-                ((unsigned char *)imageCloudBuffer.data)[idx + 2] = 0;
-                ((unsigned char *)imageCloudBuffer.data)[idx + 3] = 0;
-                bool traceThisRay = true;
-                for (int fx = 0; fx < 4; fx++) {
-                    for (int fy = 0; fy < 4; fy++) {
-                        if (hits[(x*4+fx) * BUFFER_HEIGHT + (y*4+fy)].viable) traceThisRay = false;
-
-                    }
-                }
-                if (!traceThisRay) continue;
-                const int baseX = x * 4;
-                const int baseY = y * 4;
-                const Vector3 d00 = directionStorage[(baseX + 0) * BUFFER_HEIGHT + (baseY + 0)];
-                const Vector3 d30 = directionStorage[(baseX + 3) * BUFFER_HEIGHT + (baseY + 0)];
-                const Vector3 d03 = directionStorage[(baseX + 0) * BUFFER_HEIGHT + (baseY + 3)];
-                const Vector3 d33 = directionStorage[(baseX + 3) * BUFFER_HEIGHT + (baseY + 3)];
-                Vector3 direction = Vector3Normalize({
-                    d00.x + d30.x + d03.x + d33.x,
-                    d00.y + d30.y + d03.y + d33.y,
-                    d00.z + d30.z + d03.z + d33.z
-                });
-                if (direction.y<0 && camera.target.y<100) continue;
-                float voxelX = camera.position.x; 
-                float voxelY = camera.position.y; 
-                float voxelZ = camera.position.z; 
-                float cloudStrength = 0.0f;
-                const int cloudOffset = 1024;
-                int distanceSkipped = Vector3Distance(camera.position,{camera.position.x,cloudOffset,camera.position.z});
-                voxelX += direction.x*distanceSkipped;
-                voxelY += direction.y*distanceSkipped;
-                voxelZ += direction.z*distanceSkipped;
-                
-                for (int i = distanceSkipped; i < 2048; i++) {
-                    voxelX += direction.x;
-                    voxelY += direction.y;
-                    voxelZ += direction.z;
-                    int nx = ((int)voxelX % 1024 + 1024) % 1024;
-                    int nz = ((int)voxelZ % 1024 + 1024) % 1024;
-                    int noiseValue = cloudNoise[nx + nz * 1024];
-                    int heightValue = cloudHeight[nx + nz * 1024];
+        if (renderClouds) {
+            #pragma omp parallel for collapse(2)
+            for (int x = 0; x < width/4; x+=1) {
+                for (int y = 0; y < height/4; y+=1) {
                     
-                    int cloudHeight = 1 + (heightValue * 10) / 256;
-                     const int cutoff = 140;
-                    if (noiseValue > cutoff) {
-                        if (voxelY > 100- cloudHeight+cloudOffset && voxelY < 100 + cloudHeight+cloudOffset) {
-                            cloudStrength += float(noiseValue)/1500.0f;
-                            if (cloudStrength>1) {
-                                cloudStrength = 1;
-                                break;
+                    int idx = (y * imageBuffer.width + x) * 4;
+                    int pixelIndex = x * BUFFER_HEIGHT + y;
+                    if ((x + y + frame) % 2 == 0) continue;
+                    ((unsigned char *)imageCloudBuffer.data)[idx] = 0;
+                    ((unsigned char *)imageCloudBuffer.data)[idx + 1] = 0;
+                    ((unsigned char *)imageCloudBuffer.data)[idx + 2] = 0;
+                    ((unsigned char *)imageCloudBuffer.data)[idx + 3] = 0;
+                    bool traceThisRay = true;
+                    for (int fx = 0; fx < 4; fx++) {
+                        for (int fy = 0; fy < 4; fy++) {
+                            if (hits[(x*4+fx) * BUFFER_HEIGHT + (y*4+fy)].viable) traceThisRay = false;
+
+                        }
+                    }
+                    if (!traceThisRay) continue;
+                    const int baseX = x * 4;
+                    const int baseY = y * 4;
+                    const Vector3 d00 = directionStorage[(baseX + 0) * BUFFER_HEIGHT + (baseY + 0)];
+                    const Vector3 d30 = directionStorage[(baseX + 3) * BUFFER_HEIGHT + (baseY + 0)];
+                    const Vector3 d03 = directionStorage[(baseX + 0) * BUFFER_HEIGHT + (baseY + 3)];
+                    const Vector3 d33 = directionStorage[(baseX + 3) * BUFFER_HEIGHT + (baseY + 3)];
+                    Vector3 direction = Vector3Normalize({
+                        d00.x + d30.x + d03.x + d33.x,
+                        d00.y + d30.y + d03.y + d33.y,
+                        d00.z + d30.z + d03.z + d33.z
+                    });
+                    if (direction.y<0 && camera.target.y<100) continue;
+                    float voxelX = camera.position.x; 
+                    float voxelY = camera.position.y; 
+                    float voxelZ = camera.position.z; 
+                    float cloudStrength = 0.0f;
+                    const int cloudOffset = 1024;
+                    if (direction.y*2048+voxelY<cloudOffset) continue;
+                    int distanceSkipped = Vector3Distance(camera.position,{camera.position.x,cloudOffset,camera.position.z});
+                    voxelX += direction.x*distanceSkipped;
+                    voxelY += direction.y*distanceSkipped;
+                    voxelZ += direction.z*distanceSkipped;
+                    for (int i = distanceSkipped; i < 2048;) {
+                        int lod = 1;
+                        i+=lod;
+                        voxelX += direction.x*lod;
+                        voxelY += direction.y*lod;
+                        voxelZ += direction.z*lod;
+                        int nx = ((int)voxelX % 1024 + 1024+frame/4) % 1024;
+                        int nz = ((int)voxelZ % 1024 + 1024) % 1024;
+                        int noiseValue = cloudNoise[nx + nz * 1024];
+                        int heightValue = cloudHeight[nx + nz * 1024];
+                        int cloudHeight = 1 + (heightValue * 10) / 256;
+                        const int cutoff = 140;
+                        if (noiseValue > cutoff) {
+                            if (voxelY > 100- cloudHeight+cloudOffset && voxelY < 100 + cloudHeight+cloudOffset) {
+                                cloudStrength += (float(noiseValue)/1500.0f);
+                                if (cloudStrength>1) {
+                                    cloudStrength = 1;
+                                    break;
+                                }
                             }
                         }
                     }
-                }
-                if (cloudStrength>0) {
+                    if (cloudStrength>0) {
 
-                    ((unsigned char *)imageCloudBuffer.data)[idx]     = 255*cloudStrength;
-                    ((unsigned char *)imageCloudBuffer.data)[idx + 1] = 255*cloudStrength;
-                    ((unsigned char *)imageCloudBuffer.data)[idx + 2] = 255*cloudStrength;
-                    ((unsigned char *)imageCloudBuffer.data)[idx + 3] = 255*cloudStrength;
+                        ((unsigned char *)imageCloudBuffer.data)[idx]     = 255*cloudStrength;
+                        ((unsigned char *)imageCloudBuffer.data)[idx + 1] = 255*cloudStrength;
+                        ((unsigned char *)imageCloudBuffer.data)[idx + 2] = 255*cloudStrength;
+                        ((unsigned char *)imageCloudBuffer.data)[idx + 3] = 255*cloudStrength;
+                    }
                 }
             }
         }
+        
         auto renderEnd = Clock::now();
         auto lightStart = Clock::now();
         if (IsKeyPressed(KEY_F)) reproject = !reproject;
@@ -591,7 +598,7 @@ class App {
                             int lx = ix & 31;
                             int ly = iy & 31;
                             int lz = iz & 31;
-                            
+                            if (!world->voxelChunks[cx][cy][cz].generated) break;
                             if (world->voxelChunks[cx][cy][cz].containsBlocks) {
                                 int lodr = world->voxelChunks[cx][cy][cz].lod; 
                                 int lodIndex = IDX(lx/lodr,ly/lodr,lz/lodr,world->voxelChunks[cx][cy][cz].size);
@@ -725,7 +732,7 @@ class App {
                         int ly = iy & 31;
                         int lz = iz & 31;
                         TraversalChunk& chunk = world->traversalChunks[cx][cy][cz];
-                        
+                        if (!world->voxelChunks[cx][cy][cz].generated) break;
                         if (world->voxelChunks[cx][cy][cz].containsBlocks) {
                             int lodr = world->voxelChunks[cx][cy][cz].lod; 
                             int lodIndex = IDX(lx/lodr,ly/lodr,lz/lodr,world->voxelChunks[cx][cy][cz].size);
@@ -749,6 +756,7 @@ class App {
                                 break;
                             }
                         }
+
                         float jump = std::max({
                             STEP(chunk.distanceToClosestVoxel, std::max(32, lod)),
                             STEP(chunk.distance16[IDX(lx >> 4, ly >> 4, lz >> 4, 2)], std::max(16, lod)),
@@ -849,11 +857,13 @@ class App {
                     (Rectangle){0, 0, (float)width, (float)height},
                     (Rectangle){0, 0, width*SCALE, height*SCALE},
                     (Vector2){0, 0}, 0, WHITE);
-                    
-                DrawTexturePro(cloudBuffer, 
+                if (renderClouds) {
+                    DrawTexturePro(cloudBuffer, 
                     (Rectangle){0, 0, (float)width/4, (float)height/4},
                     (Rectangle){0, 0, width, height},
                     (Vector2){0, 0}, 0, WHITE);
+                
+                }    
                         
                 DrawFPS(0, 0);
                 if (gui==2) {
@@ -972,7 +982,7 @@ class App {
                         if (IsMouseButtonDown(0)) {
                             WORLD_WIDTH = worldSize;
                             WORLD_DEPTH = worldSize;
-                            
+                            std::cout<<WORLD_WIDTH<<"\n";
                             camera.position = (Vector3){ (float)WORLD_WIDTH/2, 384, (float)WORLD_DEPTH/2 };
                             
                         }
