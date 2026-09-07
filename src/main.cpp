@@ -413,8 +413,8 @@ class App {
         }
         if (renderClouds) {
             #pragma omp parallel for collapse(2)
-            for (int x = 0; x < width/4; x+=1) {
-                for (int y = 0; y < height/4; y+=1) {
+            for (int x = 0; x < 800/4; x+=1) {
+                for (int y = 0; y < 800/4; y+=1) {
                     
                     int idx = (y * imageBuffer.width + x) * 4;
                     int pixelIndex = x * BUFFER_HEIGHT + y;
@@ -433,15 +433,21 @@ class App {
                     if (!traceThisRay) continue;
                     const int baseX = x * 4;
                     const int baseY = y * 4;
-                    const Vector3 d00 = directionStorage[(baseX + 0) * BUFFER_HEIGHT + (baseY + 0)];
-                    const Vector3 d30 = directionStorage[(baseX + 3) * BUFFER_HEIGHT + (baseY + 0)];
-                    const Vector3 d03 = directionStorage[(baseX + 0) * BUFFER_HEIGHT + (baseY + 3)];
-                    const Vector3 d33 = directionStorage[(baseX + 3) * BUFFER_HEIGHT + (baseY + 3)];
-                    Vector3 direction = Vector3Normalize({
-                        d00.x + d30.x + d03.x + d33.x,
-                        d00.y + d30.y + d03.y + d33.y,
-                        d00.z + d30.z + d03.z + d33.z
-                    });
+                    float cloudScreenY = y * 4.0f + 2.0f;
+                    float cloudScreenX = x * 4.0f + 2.0f;
+
+                    alignas(32) float xs[8], ys[8], zs[8];
+
+                    GetScreenToWorldRay8(
+                        cloudScreenX,
+                        cloudScreenY,
+                        800,
+                        800,
+                        viewInv,
+                        xs, ys, zs
+                    );
+
+                    Vector3 direction = { xs[0], ys[0], zs[0] };
                     if (direction.y<0 && camera.target.y<100) continue;
                     float voxelX = camera.position.x; 
                     float voxelY = camera.position.y; 
@@ -468,20 +474,16 @@ class App {
                         if (noiseValue > cutoff) {
                             if (voxelY > 100- cloudHeight+cloudOffset && voxelY < 100 + cloudHeight+cloudOffset) {
                                 cloudStrength += (float(noiseValue)/1500.0f);
-                                if (cloudStrength>1) {
-                                    cloudStrength = 1;
-                                    break;
-                                }
                             }
                         }
                     }
-                    if (cloudStrength>0) {
-
-                        ((unsigned char *)imageCloudBuffer.data)[idx]     = 255*cloudStrength;
-                        ((unsigned char *)imageCloudBuffer.data)[idx + 1] = 255*cloudStrength;
-                        ((unsigned char *)imageCloudBuffer.data)[idx + 2] = 255*cloudStrength;
-                        ((unsigned char *)imageCloudBuffer.data)[idx + 3] = 255*cloudStrength;
+                    if (cloudStrength>1) {
+                        cloudStrength = 1;
                     }
+                    ((unsigned char *)imageCloudBuffer.data)[idx]     = 255*cloudStrength;
+                    ((unsigned char *)imageCloudBuffer.data)[idx + 1] = 255*cloudStrength;
+                    ((unsigned char *)imageCloudBuffer.data)[idx + 2] = 255*cloudStrength;
+                    ((unsigned char *)imageCloudBuffer.data)[idx + 3] = 255*cloudStrength;
                 }
             }
         }
@@ -859,8 +861,8 @@ class App {
                     (Vector2){0, 0}, 0, WHITE);
                 if (renderClouds) {
                     DrawTexturePro(cloudBuffer, 
-                    (Rectangle){0, 0, (float)width/4, (float)height/4},
-                    (Rectangle){0, 0, width, height},
+                    (Rectangle){0, 0, (float)200, (float)200},
+                    (Rectangle){0, 0, 800, 800},
                     (Vector2){0, 0}, 0, WHITE);
                 
                 }    

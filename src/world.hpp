@@ -351,16 +351,15 @@ struct TraversalChunk {
     uint8_t distance4Bits = 0;
     bool containsData = false;
     void Init(int cellSize) {
-        
         distance16 = (uint8_t*)MemAlloc(2*2*2);
-        for (int i = 0; i < 8; i++)  distance16[i] = 0;
+        for (int i = 0; i < 8; i++)  distance16[i] = 255;
         if (cellSize<16) {
             distance8 = (uint8_t*)MemAlloc(4*4*4);
-            for (int i = 0; i < 64; i++) distance8[i] = 0;
+            for (int i = 0; i < 64; i++) distance8[i] = 255;
         }
         if (cellSize<8) {
             distance4 = (uint8_t*)MemAlloc(8*8*8);
-            for (int i = 0; i < 512; i++) distance4[i] = 0;
+            for (int i = 0; i < 512; i++) distance4[i] = 255;
         }
             
     }
