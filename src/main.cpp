@@ -13,6 +13,9 @@
 #include "math.hpp"
 #include <thread>
 #include <atomic>
+#include <vector>
+#include <utility>
+#include <algorithm>
 using Clock = std::chrono::steady_clock;
 const Color colors[255] = {SKYBLUE,GREEN,{uint8_t(GREEN.r*0.9),uint8_t(GREEN.g*0.9),uint8_t(GREEN.b*0.9),255},BROWN,DARKGREEN,GRAY,YELLOW,BLUE, LIME,PINK, WHITE};
 
@@ -73,6 +76,9 @@ class App {
     int frame = 0;
     Vector3*ids;
     WorldType worldType = WORLD_PLAINS;
+    std::vector<std::pair<int, int>> generationOrder;
+    size_t nextColumnToGenerate = 0;
+    size_t nextColumnToFinalize = 0;
     
     uint8_t *cloudNoise;       
     uint8_t *cloudHeight;       
@@ -104,11 +110,31 @@ class App {
         cloudHeight = GenImagePerlinNoiseOptimized(1024,1024,0,0,64);
     }
     void Render() {
-        auto totalStart = Clock::now();
         Matrix matView = MatrixLookAt(camera.position, camera.target, camera.up);
         Matrix viewInv = MatrixInvert(matView);
         auto dirStart = Clock::now();
+           
         if (cameraMoved) {
+                    
+            if (nextColumnToGenerate < generationOrder.size()) {
+                int cameraChunkX = (int)camera.position.x / 32;
+                int cameraChunkZ = (int)camera.position.z / 32;
+
+                std::sort(
+                    generationOrder.begin() + nextColumnToGenerate,
+                    generationOrder.end(),
+                    [cameraChunkX, cameraChunkZ](const std::pair<int, int>& a,
+                                                const std::pair<int, int>& b) {
+                        int adx = a.first - cameraChunkX;
+                        int adz = a.second - cameraChunkZ;
+                        int bdx = b.first - cameraChunkX;
+                        int bdz = b.second - cameraChunkZ;
+
+                        return adx * adx + adz * adz <
+                            bdx * bdx + bdz * bdz;
+                    }
+                );
+            }
             #pragma omp parallel for
             for (int y = 0; y < height; y++) {
                 alignas(32) float xs[8], ys[8], zs[8];
@@ -235,7 +261,6 @@ class App {
             #pragma omp parallel for collapse(2)
             for (int x = 0; x < width; x+=1) {
                 for (int y = 0; y < height; y+=1) {
-                    int idx = (y * imageBuffer.width + x) * 3;
                     int pixelIndex = x * BUFFER_HEIGHT + y;
                     if ((x + y + frame) % 2 == 0) continue;
                     if (hits[pixelIndex].viable) {
@@ -286,7 +311,6 @@ class App {
             #pragma omp parallel for collapse(2)
             for (int x = 0; x < width; x+=1) {
                 for (int y = 0; y < height; y+=1) {
-                    int idx = (y * imageBuffer.width + x) * 3;
                     int pixelIndex = x * BUFFER_HEIGHT + y;
                     if ((x + y + frame) % 2 == 0) continue;
                     hits[pixelIndex].traced = false;
@@ -417,7 +441,6 @@ class App {
                 for (int y = 0; y < 800/4; y+=1) {
                     
                     int idx = (y * imageBuffer.width + x) * 4;
-                    int pixelIndex = x * BUFFER_HEIGHT + y;
                     if ((x + y + frame) % 2 == 0) continue;
                     ((unsigned char *)imageCloudBuffer.data)[idx] = 0;
                     ((unsigned char *)imageCloudBuffer.data)[idx + 1] = 0;
@@ -431,8 +454,6 @@ class App {
                         }
                     }
                     if (!traceThisRay) continue;
-                    const int baseX = x * 4;
-                    const int baseY = y * 4;
                     float cloudScreenY = y * 4.0f + 2.0f;
                     float cloudScreenX = x * 4.0f + 2.0f;
 
@@ -814,18 +835,14 @@ class App {
         int dvdY = 0;
         int dvdXChange = 1;
         int dvdYChange = 1;
-        int choosenSize = 512;
         int gui = 0;
         
         while (!WindowShouldClose()) {
             BeginDrawing();
             ClearBackground(WHITE);
-
-
             frame++;
             if (worldFinished==2) {
                 if (IsKeyPressed(KEY_E)) {
-                    
                     if (gui==0) {
                         gui = 2;
                         EnableCursor();
@@ -891,6 +908,9 @@ class App {
                                 worker.join();
                             }
                             world->Reset();
+                            generationOrder.clear();
+                            nextColumnToGenerate = 0;
+                            nextColumnToFinalize = 0;
                             worldFinished = 0;
                             gui = 0;
                         }
@@ -959,6 +979,43 @@ class App {
                             Render();
                         }
                     }
+                }
+                if (nextColumnToGenerate < generationOrder.size()) {
+                    const int x = generationOrder[nextColumnToGenerate].first;
+                    const int z = generationOrder[nextColumnToGenerate].second;
+
+                    float dx = x * 32.0f + 16.0f - camera.position.x;
+                    float dz = z * 32.0f + 16.0f - camera.position.z;
+
+                    if (dx * dx + dz * dz <= RENDERDISTANCE * RENDERDISTANCE) {
+                        world->InitColumn(camera.position, x, z);
+                        world->GenerateTerrain(worldType, x, z);
+                        world->BuildDistanceToClosestVoxel(x, z);
+                        world->BuildDistanceLayerBaseline(x, z);
+                        world->BuildDistanceLayer(x, z, 8);
+                        world->BuildDistanceLayer(x, z, 4);
+
+                        for (int y = 0; y < WORLD_HEIGHT / 32; y++) {
+                            world->voxelChunks[x][y][z].CheckOriginals(
+                                world->traversalChunks[x][y][z].buildID
+                            );
+                        }
+
+                        generatedChunks++;
+                        world->GenerateOccupancyMasks(x, z);
+                    }
+
+                    nextColumnToGenerate++;
+                }
+                else if (nextColumnToFinalize < generationOrder.size()) {
+                    const int x = generationOrder[nextColumnToFinalize].first;
+                    const int z = generationOrder[nextColumnToFinalize].second;
+
+                    for (int y = 0; y < WORLD_HEIGHT/32; y++) {
+                        world->traversalChunks[x][y][z].CheckDelta(world->traversalChunks[x][y][z].buildID);
+                    }
+
+                    nextColumnToFinalize++;
                 }
                 EndDrawing();
                 
@@ -1030,7 +1087,33 @@ class App {
                     DrawRectangle(0, 0, 200.0f, 50.0f, {GRAY.r,GRAY.g,GRAY.b,50});
                         
                     if (IsMouseButtonDown(0)) {
+                        generationOrder.clear();
+                        nextColumnToGenerate = 0;
+                        nextColumnToFinalize = 0;
+
+                        const int chunkCountX = WORLD_WIDTH / 32;
+                        const int chunkCountZ = WORLD_DEPTH / 32;
+                        const int cameraChunkX = std::max(0, std::min(chunkCountX - 1, (int)camera.position.x / 32));
+                        const int cameraChunkZ = std::max(0, std::min(chunkCountZ - 1, (int)camera.position.z / 32));
+
+                        generationOrder.reserve(chunkCountX * chunkCountZ);
+                        for (int x = 0; x < chunkCountX; x++) {
+                            for (int z = 0; z < chunkCountZ; z++) {
+                                generationOrder.push_back({x, z});
+                            }
+                        }
+
+                        std::sort(generationOrder.begin(), generationOrder.end(),
+                            [cameraChunkX, cameraChunkZ](const std::pair<int, int>& a, const std::pair<int, int>& b) {
+                                const long long adx = a.first - cameraChunkX;
+                                const long long adz = a.second - cameraChunkZ;
+                                const long long bdx = b.first - cameraChunkX;
+                                const long long bdz = b.second - cameraChunkZ;
+                                return adx * adx + adz * adz < bdx * bdx + bdz * bdz;
+                            });
+
                         worldFinished = 1;                     
+                        generatedChunks = 0;
                         worker = std::thread([=]() {
                             world->Init(camera.position,worldType);
                             worldFinished.store(2);
@@ -1043,7 +1126,7 @@ class App {
                 Button(0,280,4096,"4096x4096");
                 EndDrawing();
             }
-            
+        std::cout<<generatedChunks<<"\n";
     }
 }
 
