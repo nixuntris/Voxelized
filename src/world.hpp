@@ -500,6 +500,8 @@ struct TraversalChunk {
 struct World {
     VoxelChunk voxelChunks[WORLD_WIDTH/32][WORLD_HEIGHT/32][WORLD_DEPTH/32];
     TraversalChunk traversalChunks[WORLD_WIDTH/32][WORLD_HEIGHT/32][WORLD_DEPTH/32];
+    WorldType chunkBiome[WORLD_WIDTH/32][WORLD_DEPTH/32];
+
     void Reset()
 {
     const int CHUNK_COUNT_X = WORLD_WIDTH  / 32;
@@ -1004,69 +1006,52 @@ struct World {
         }
     }
 
-    void Init(Vector3 cameraPosition, WorldType worldType) {
-        (void)cameraPosition;
-        (void)worldType;
-       // 
-       // //do lods before distance fields for faster calculations of dfs
-       // auto terrainBeg = Clock::now();
-       // for (int x = 0; x < WORLD_WIDTH/32; ++x) {
-       //     for (int z = 0; z < WORLD_DEPTH/32; ++z) {
-       //         GenerateTerrain(worldType,x,z);
-       //     }
-       // }
-       // std::cout<<"World gen end\n";
-       // auto terrainEnd = Clock::now();
-       //
-       // auto distanceLayersBeg = Clock::now();
-       // for (int x = 0; x < WORLD_WIDTH/32; ++x) {
-       //     for (int z = 0; z < WORLD_DEPTH/32; ++z) {
-       //         BuildDistanceToClosestVoxel(x,z);
-       //     }
-       // }
-       // std::cout<<"Closest\n";
-       // for (int x = 0; x < WORLD_WIDTH/32; ++x) {
-       //     for (int z = 0; z < WORLD_DEPTH/32; ++z) {
-       //         BuildDistanceLayerBaseline(x,z);
-       //     }
-       // }
-       // std::cout<<"Base\n";
-       // 
-       // for (int x = 0; x < WORLD_WIDTH/32; ++x) {
-       //     for (int z = 0; z < WORLD_DEPTH/32; ++z) {
-       //         BuildDistanceLayer(x,z,8); //slow function
-       //     }
-       // }
-       // std::cout<<"8\n";
-       // 
-       // for (int x = 0; x < WORLD_WIDTH/32; ++x) {
-       //     for (int z = 0; z < WORLD_DEPTH/32; ++z) {
-       //         BuildDistanceLayer(x,z,4);
-       //     }
-       // }
-       // std::cout<<"4\n";
-       // auto distanceLayersEnd = Clock::now();
-       // 
-       //  auto occupancyBeg = Clock::now();
-       // 
-       // for (int x = 0; x < WORLD_WIDTH/32; x++) {
-       //     for (int z = 0; z < WORLD_DEPTH/32; z++) {
-       //         GenerateOccupancyMasks(x,z); //EASILY THE SLOWEST AND LEAST SCALABLE FUNC
-       //     }
-       // }            
-       // auto occupancyOld = Clock::now();
-       // #pragma omp parallel for collapse(3)
-       // for (int x = 0; x < WORLD_WIDTH/32; x++) {
-       //     for (int z = 0; z < WORLD_DEPTH/32; z++) {
-       //         for (int y= 0 ; y < WORLD_HEIGHT/32; y++) {
-       //             voxelChunks[x][y][z].CheckOriginals(traversalChunks[x][y][z].buildID);
-       //             traversalChunks[x][y][z].CheckDelta(traversalChunks[x][y][z].buildID);
-       //         }
-       //     }
-       // }
-        
-        //GetMemoryUsageBytes();
-//        std::cout<<"terrain gen: "<<ms(terrainBeg,terrainEnd)<<" distance fields: "<<ms(distanceLayersBeg,distanceLayersEnd)<<" occupancy: "<<ms(occupancyBeg,occupancyOld)<<"\n";
+    void Init() {
+        const int chunksX = WORLD_WIDTH / 32;
+        const int chunksZ = WORLD_DEPTH / 32;
+        float scale = 8;
+        uint8_t* heatMap = GenImagePerlinNoiseOptimized(
+            chunksX,
+            chunksZ,
+            5000,
+            12000,
+            0.025f*scale
+        );
+
+        uint8_t* elevationMap = GenImagePerlinNoiseOptimized(
+            chunksX,
+            chunksZ,
+            18000,
+            3000,
+            0.025f*scale
+        );
+
+        for (int x = 0; x < chunksX; x++) {
+            for (int z = 0; z < chunksZ; z++) {
+
+                float heat =
+                    heatMap[z * chunksX + x] / 255.0f;
+
+                float elevation =
+                    elevationMap[z * chunksX + x] / 255.0f;
+
+                if (elevation < 0.35f) {
+                    chunkBiome[x][z] = WORLD_ISLANDS;
+                }
+                else if (elevation > 0.68f) {
+                    chunkBiome[x][z] = WORLD_MOUNTAINS;
+                }
+                else if (heat > 0.62f) {
+                    chunkBiome[x][z] = WORLD_DESERT;
+                }
+                else {
+                    chunkBiome[x][z] = WORLD_PLAINS;
+                }
+            }
+        }
+
+        free(heatMap);
+        free(elevationMap);
     }
     uint64_t GetMemoryUsageBytes() const {
 

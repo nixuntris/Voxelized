@@ -990,7 +990,7 @@ class App {
 
                     if (dx * dx + dz * dz <= RENDERDISTANCE * RENDERDISTANCE) {
                         world->InitColumn(camera.position, x, z);
-                        world->GenerateTerrain(worldType, x, z);
+                        world->GenerateTerrain(world->chunkBiome[x][z], x, z);
                             
                         auto sphere = [&](int x, int y, int z, int size, uint8_t type) {
                             int middleX = x + size/2;
@@ -1310,7 +1310,7 @@ class App {
                         worldFinished = 1;                     
                         generatedChunks = 0;
                         worker = std::thread([=]() {
-                            world->Init(camera.position,worldType);
+                            world->Init();
                             worldFinished.store(2);
                         });
                         DisableCursor();
