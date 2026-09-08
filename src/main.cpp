@@ -79,7 +79,7 @@ class App {
     std::vector<std::pair<int, int>> generationOrder;
     size_t nextColumnToGenerate = 0;
     size_t nextColumnToFinalize = 0;
-    
+    Matrix matView;
     uint8_t *cloudNoise;       
     uint8_t *cloudHeight;       
     App() {
@@ -111,7 +111,8 @@ class App {
         camera.position = {(float)WORLD_WIDTH/2,WORLD_HEIGHT/2,(float)WORLD_DEPTH/2};
     }
     void Render() {
-        Matrix matView = MatrixLookAt(camera.position, camera.target, camera.up);
+        matView = MatrixLookAt(camera.position, camera.target, camera.up);
+
         Matrix viewInv = MatrixInvert(matView);
         auto dirStart = Clock::now();
            
@@ -987,7 +988,7 @@ class App {
 
                     float dx = x * 32.0f + 16.0f - camera.position.x;
                     float dz = z * 32.0f + 16.0f - camera.position.z;
-
+                    ColumnInFrustum(x,z,camera.position,matView,matProj);
                     if (dx * dx + dz * dz <= RENDERDISTANCE * RENDERDISTANCE) {
                         world->InitColumn(camera.position, x, z);
                         world->GenerateTerrain(world->chunkBiome[x][z], x, z);

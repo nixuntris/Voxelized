@@ -377,3 +377,67 @@ inline uint8_t* GenImagePerlinNoiseOptimized(int width, int height, int offsetX,
 
     return pixels;
 }
+bool ColumnInFrustum(
+    int cx,
+    int cz,
+    Vector3 cameraPosition,
+    Matrix view,
+    Matrix projection
+) {
+    float x0 = cx * 32.0f;
+    float x1 = x0 + 32.0f;
+
+    float z0 = cz * 32.0f;
+    float z1 = z0 + 32.0f;
+
+    float y0 = 0.0f;
+    float y1 = (float)512;
+
+    if (cameraPosition.x >= x0 && cameraPosition.x <= x1 &&
+        cameraPosition.z >= z0 && cameraPosition.z <= z1 &&
+        cameraPosition.y >= y0 && cameraPosition.y <= y1) {
+        return true;
+    }
+
+    bool left   = true;
+    bool right  = true;
+    bool bottom = true;
+    bool top    = true;
+    bool nearP  = true;
+    bool farP   = true;
+
+    for (int ix = 0; ix < 2; ix++) {
+        for (int iy = 0; iy < 2; iy++) {
+            for (int iz = 0; iz < 2; iz++) {
+                Vector4 p = {
+                    ix ? x1 : x0,
+                    iy ? y1 : y0,
+                    iz ? z1 : z0,
+                    1.0f
+                };
+
+               Vector4 v = {
+                    view.m0*p.x + view.m4*p.y + view.m8*p.z  + view.m12*p.w,
+                    view.m1*p.x + view.m5*p.y + view.m9*p.z  + view.m13*p.w,
+                    view.m2*p.x + view.m6*p.y + view.m10*p.z + view.m14*p.w,
+                    view.m3*p.x + view.m7*p.y + view.m11*p.z + view.m15*p.w
+                };
+
+                Vector4 c = {
+                    projection.m0*v.x + projection.m4*v.y + projection.m8*v.z  + projection.m12*v.w,
+                    projection.m1*v.x + projection.m5*v.y + projection.m9*v.z  + projection.m13*v.w,
+                    projection.m2*v.x + projection.m6*v.y + projection.m10*v.z + projection.m14*v.w,
+                    projection.m3*v.x + projection.m7*v.y + projection.m11*v.z + projection.m15*v.w
+                };
+                left   &= c.x < -c.w;
+                right  &= c.x >  c.w;
+                bottom &= c.y < -c.w;
+                top    &= c.y >  c.w;
+                nearP  &= c.z < -c.w;
+                farP   &= c.z >  c.w;
+            }
+        }
+    }
+
+    return !(left || right || bottom || top || nearP || farP);
+}
