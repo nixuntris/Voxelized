@@ -1276,13 +1276,6 @@ class App {
                     }
                 };
                 
-                DrawText("WORLD SIZE", 0, 65, 20, BLACK);
-
-                DrawText("WORLD TYPE", 250, 65, 20, BLACK);
-
-                WorldTypeButton(250, 100, WORLD_PLAINS,    "Plains");
-                WorldTypeButton(250, 160, WORLD_MOUNTAINS, "Mountains");
-                WorldTypeButton(250, 220, WORLD_DESERT,    "Desert");
                 DrawRectangleLinesEx({0, 200, 200.0f, 50.0f}, 3, BLACK);
                 DrawText("Create World", 0, 200, 20, BLACK);
                 if (CheckCollisionRecs({0, 200, 200.0f, 50.0f},{(float)GetMouseX(),(float)GetMouseY(),1,1})) {
