@@ -85,8 +85,8 @@ const float LOD8_START  = 8.0f  / PIXEL_WORLD_SLOPE;
 const float LOD16_START = 16.0f / PIXEL_WORLD_SLOPE;
 const float LOD32_START = 32.0f / PIXEL_WORLD_SLOPE;
 
-int WORLD_WIDTH = 2048;
-int WORLD_DEPTH = 2048;
+const int WORLD_WIDTH = 8192*4;
+const int WORLD_DEPTH = 8192*4;
 const int WORLD_HEIGHT = 512;
 const int RENDERDISTANCE = 2048;
 enum WorldType {
@@ -498,8 +498,8 @@ struct TraversalChunk {
     }
 };
 struct World {
-    VoxelChunk voxelChunks[8192/32][WORLD_HEIGHT/32][8192/32];
-    TraversalChunk traversalChunks[8192/32][WORLD_HEIGHT/32][8192/32];
+    VoxelChunk voxelChunks[WORLD_WIDTH/32][WORLD_HEIGHT/32][WORLD_DEPTH/32];
+    TraversalChunk traversalChunks[WORLD_WIDTH/32][WORLD_HEIGHT/32][WORLD_DEPTH/32];
     void Reset()
 {
     const int CHUNK_COUNT_X = WORLD_WIDTH  / 32;

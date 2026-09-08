@@ -108,6 +108,7 @@ class App {
         }
         cloudNoise =  GenImagePerlinNoiseOptimized(1024,1024,0,0,16);
         cloudHeight = GenImagePerlinNoiseOptimized(1024,1024,0,0,64);
+        camera.position = {(float)WORLD_WIDTH/2,WORLD_HEIGHT/2,(float)WORLD_DEPTH/2};
     }
     void Render() {
         Matrix matView = MatrixLookAt(camera.position, camera.target, camera.up);
@@ -1245,25 +1246,7 @@ class App {
                 EndDrawing();
             }
             else if (worldFinished==0) {
-                auto Button = [&](float x, float y, int worldSize, const char* text) {
-                    DrawRectangleLinesEx({x, y, 200.0f, 50.0f}, 3, BLACK);
-                    DrawText(text, x, y, 20, BLACK);
-                    if (CheckCollisionRecs({x, y, 200.0f, 50.0f},{(float)GetMouseX(),(float)GetMouseY(),1,1})) {
-                        DrawRectangle(x,y, 200.0f, 50.0f, {GRAY.r,GRAY.g,GRAY.b,50});
-                        if (IsMouseButtonDown(0)) {
-                            WORLD_WIDTH = worldSize;
-                            WORLD_DEPTH = worldSize;
-                            std::cout<<WORLD_WIDTH<<"\n";
-                            camera.position = (Vector3){ (float)WORLD_WIDTH/2, 384, (float)WORLD_DEPTH/2 };
-                            
-                        }
-                        
-                    }
-                    else if (WORLD_WIDTH == worldSize) {
-                        DrawRectangle(x,y, 200.0f, 50.0f, {GRAY.r,GRAY.g,GRAY.b,50});
-                        
-                    }
-                };
+                
                 auto WorldTypeButton = [&](float x, float y, WorldType type, const char* text) {
                     Rectangle rect = {x,y,200.0f,50.0f};
                     if (worldType == type) {
@@ -1293,10 +1276,10 @@ class App {
                 WorldTypeButton(250, 100, WORLD_PLAINS,    "Plains");
                 WorldTypeButton(250, 160, WORLD_MOUNTAINS, "Mountains");
                 WorldTypeButton(250, 220, WORLD_DESERT,    "Desert");
-                DrawRectangleLinesEx({0, 0, 200.0f, 50.0f}, 3, BLACK);
-                DrawText("Create World", 0, 0, 20, BLACK);
-                if (CheckCollisionRecs({0, 0, 200.0f, 50.0f},{(float)GetMouseX(),(float)GetMouseY(),1,1})) {
-                    DrawRectangle(0, 0, 200.0f, 50.0f, {GRAY.r,GRAY.g,GRAY.b,50});
+                DrawRectangleLinesEx({0, 200, 200.0f, 50.0f}, 3, BLACK);
+                DrawText("Create World", 0, 200, 20, BLACK);
+                if (CheckCollisionRecs({0, 200, 200.0f, 50.0f},{(float)GetMouseX(),(float)GetMouseY(),1,1})) {
+                    DrawRectangle(0, 200, 200.0f, 50.0f, {GRAY.r,GRAY.g,GRAY.b,50});
                         
                     if (IsMouseButtonDown(0)) {
                         generationOrder.clear();
@@ -1330,12 +1313,10 @@ class App {
                             world->Init(camera.position,worldType);
                             worldFinished.store(2);
                         });
+                        DisableCursor();
+                        SetTargetFPS(-1);
                     }
                 }
-                Button(0,100,512,"512x512");
-                Button(0,160,1024,"1024x1024");
-                Button(0,220,2048,"2048x2048");
-                Button(0,280,4096,"4096x4096");
                 EndDrawing();
             }
         std::cout<<generatedChunks<<"\n";
