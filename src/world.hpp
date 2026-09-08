@@ -1009,7 +1009,7 @@ struct World {
     void Init() {
         const int chunksX = WORLD_WIDTH / 32;
         const int chunksZ = WORLD_DEPTH / 32;
-        float scale = 8;
+        float scale = 1;
         uint8_t* heatMap = GenImagePerlinNoiseOptimized(
             chunksX,
             chunksZ,

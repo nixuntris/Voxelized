@@ -1196,10 +1196,17 @@ class App {
                             int offx = GetRandomValue(-24,24);
                             int offy = GetRandomValue(-24,24);
                             for (int i = 0; i <WORLD_HEIGHT; i++) {
+                                if (world->chunkBiome[x][z]==WORLD_DESERT) {
+                                    if (world->GetVoxel(x*32+offx,i,z*32+offy)==SAND) {
+                                        cactusPlant(x*32+offx,i,z*32+offy);
+                                        break;
+                                    }
+                                }
+                                else if (world->chunkBiome[x][z]==WORLD_MOUNTAINS) {
                                 if (world->GetVoxel(x*32+offx,i,z*32+offy)==GRASS) {
                                     oakTree(x*32+offx,i,z*32+offy);
                                     break;
-                                }
+                                }}
                             }
                             
                         }
