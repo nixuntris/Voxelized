@@ -377,13 +377,7 @@ inline uint8_t* GenImagePerlinNoiseOptimized(int width, int height, int offsetX,
 
     return pixels;
 }
-bool ColumnInFrustum(
-    int cx,
-    int cz,
-    Vector3 cameraPosition,
-    Matrix view,
-    Matrix projection
-) {
+bool ColumnInFrustum(int cx,int cz,Vector3 cameraPosition,Matrix view,Matrix projection) {
     float x0 = cx * 32.0f;
     float x1 = x0 + 32.0f;
 
@@ -392,12 +386,6 @@ bool ColumnInFrustum(
 
     float y0 = 0.0f;
     float y1 = (float)512;
-
-    if (cameraPosition.x >= x0 && cameraPosition.x <= x1 &&
-        cameraPosition.z >= z0 && cameraPosition.z <= z1 &&
-        cameraPosition.y >= y0 && cameraPosition.y <= y1) {
-        return true;
-    }
 
     bool left   = true;
     bool right  = true;

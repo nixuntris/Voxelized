@@ -15,6 +15,7 @@
 #include <atomic>
 #include <vector>
 #include <utility>
+#include "gui.hpp"
 #include <algorithm>
 using Clock = std::chrono::steady_clock;
 const Color colors[255] = {SKYBLUE,GREEN,{uint8_t(GREEN.r*0.9),uint8_t(GREEN.g*0.9),uint8_t(GREEN.b*0.9),255},BROWN,DARKGREEN,GRAY,YELLOW,BLUE, LIME,PINK, WHITE};
@@ -983,50 +984,92 @@ class App {
                     }
                 }
                 if (nextColumnToGenerate < generationOrder.size()) {
-                    size_t candidate = generationOrder.size();
+                    if (frame%5==0) {
+                        size_t candidate = generationOrder.size();
 
-                    for (size_t i = nextColumnToGenerate; i < generationOrder.size(); i++) {
-                        const int x = generationOrder[i].first;
-                        const int z = generationOrder[i].second;
+                        for (size_t i = nextColumnToGenerate; i < generationOrder.size(); i++) {
+                            const int x = generationOrder[i].first;
+                            const int z = generationOrder[i].second;
 
-                        float dx = x * 32.0f + 16.0f - camera.position.x;
-                        float dz = z * 32.0f + 16.0f - camera.position.z;
+                            float dx = x * 32.0f + 16.0f - camera.position.x;
+                            float dz = z * 32.0f + 16.0f - camera.position.z;
 
-                        if (dx * dx + dz * dz <= RENDERDISTANCE * RENDERDISTANCE &&
-                            ColumnInFrustum(x, z, camera.position, matView, matProj)) {
-                            candidate = i;
-                            break;
+                            if (dx * dx + dz * dz <= RENDERDISTANCE * RENDERDISTANCE &&
+                                ColumnInFrustum(x, z, camera.position, matView, matProj) && Vector2Distance({camera.position.x,camera.position.z},{x*32.0f,z*32.0f})<RENDERDISTANCE) {
+                                candidate = i;
+                                break;
+                            }
                         }
-                    }
 
-                    if (candidate != generationOrder.size()) {
-                        std::swap(
-                            generationOrder[nextColumnToGenerate],
-                            generationOrder[candidate]
-                        );
-
-                        const int x = generationOrder[nextColumnToGenerate].first;
-                        const int z = generationOrder[nextColumnToGenerate].second;
-
-                        world->InitColumn(camera.position, x, z);
-                        world->GenerateTerrain(world->chunkBiome[x][z], x, z);
-
-                        world->BuildDistanceToClosestVoxel(x, z);
-                        world->BuildDistanceLayerBaseline(x, z);
-                        world->BuildDistanceLayer(x, z, 8);
-                        world->BuildDistanceLayer(x, z, 4);
-
-                        for (int y = 0; y < WORLD_HEIGHT / 32; y++) {
-                            world->voxelChunks[x][y][z].CheckOriginals(
-                                world->traversalChunks[x][y][z].buildID
+                        if (candidate != generationOrder.size()) {
+                            std::swap(
+                                generationOrder[nextColumnToGenerate],
+                                generationOrder[candidate]
                             );
+                            const int x = generationOrder[nextColumnToGenerate].first;
+                            const int z = generationOrder[nextColumnToGenerate].second;
+
+                            using Clock = std::chrono::high_resolution_clock;
+
+                            auto t0 = Clock::now();
+
+                            world->InitColumn(camera.position, x, z);
+
+                            auto t1 = Clock::now();
+
+                            world->GenerateTerrain(world->chunkBiome[x][z], x, z);
+
+                            auto t2 = Clock::now();
+
+                            world->BuildDistanceToClosestVoxel(x, z);
+
+                            auto t3 = Clock::now();
+
+                            world->BuildDistanceLayerBaseline(x, z);
+
+                            auto t4 = Clock::now();
+
+                            world->BuildDistanceLayer(x, z, 8);
+
+                            auto t5 = Clock::now();
+
+                            world->BuildDistanceLayer(x, z, 4);
+
+                            auto t6 = Clock::now();
+
+                            for (int y = 0; y < WORLD_HEIGHT / 32; y++) {
+                                world->voxelChunks[x][y][z].CheckOriginals(
+                                    world->traversalChunks[x][y][z].buildID
+                                );
+                            }
+
+                            auto t7 = Clock::now();
+
+                            generatedChunks++;
+
+                            world->GenerateOccupancyMasks(x, z);
+
+                            auto t8 = Clock::now();
+
+                            auto ms = [](auto start, auto end) {
+                                return std::chrono::duration<double, std::milli>(end - start).count();
+                            };
+
+                            std::cout
+                                << "Column [" << x << ", " << z << "]\n"
+                                << "InitColumn:                     " << ms(t0, t1) << " ms\n"
+                                << "GenerateTerrain:                " << ms(t1, t2) << " ms\n"
+                                << "BuildDistanceToClosestVoxel:    " << ms(t2, t3) << " ms\n"
+                                << "BuildDistanceLayerBaseline:     " << ms(t3, t4) << " ms\n"
+                                << "BuildDistanceLayer 8:           " << ms(t4, t5) << " ms\n"
+                                << "BuildDistanceLayer 4:           " << ms(t5, t6) << " ms\n"
+                                << "CheckOriginals:                 " << ms(t6, t7) << " ms\n"
+                                << "GenerateOccupancyMasks:         " << ms(t7, t8) << " ms\n"
+                                << "TOTAL:                          " << ms(t0, t8) << " ms\n\n";
+                            nextColumnToGenerate++;
                         }
-
-                        generatedChunks++;
-                        world->GenerateOccupancyMasks(x, z);
-
-                        nextColumnToGenerate++;
                     }
+                    
                 }
                 else if (nextColumnToFinalize < generationOrder.size()) {
                     const int x = generationOrder[nextColumnToFinalize].first;
@@ -1056,28 +1099,6 @@ class App {
                 EndDrawing();
             }
             else if (worldFinished==0) {
-                
-                auto WorldTypeButton = [&](float x, float y, WorldType type, const char* text) {
-                    Rectangle rect = {x,y,200.0f,50.0f};
-                    if (worldType == type) {
-                        DrawRectangle(
-                            x, y,
-                            200.0f, 50.0f,
-                            {GRAY.r, GRAY.g, GRAY.b, 100}
-                        );
-                    }
-
-                    DrawRectangleLinesEx(rect, 3, BLACK);
-                    DrawText(text, x, y, 20, BLACK);
-
-                    if (CheckCollisionRecs(rect,{(float)GetMouseX(), (float)GetMouseY(), 1, 1})) {
-                        DrawRectangle(x, y,200.0f, 50.0f,{GRAY.r, GRAY.g, GRAY.b, 50});
-
-                        if (IsMouseButtonPressed(0)) {
-                            worldType = type;
-                        }
-                    }
-                };
                 
                 DrawRectangleLinesEx({0, 200, 200.0f, 50.0f}, 3, BLACK);
                 DrawText("Create World", 0, 200, 20, BLACK);
@@ -1130,6 +1151,7 @@ class App {
 };
 
 int main() {
-    App *app = new App;
-    app->Run();
+//    App *app = new App;
+  //  app->Run();
+  VX_GUI::TestScene();
 }
