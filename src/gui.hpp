@@ -2,6 +2,7 @@
 #include "raylib.h"
 #include <variant>
 #include <vector>
+#include <string>
 const Color TRANSPARENT = {0,0,0,0};
 namespace VX_GUI {
     enum GUI_TYPE {

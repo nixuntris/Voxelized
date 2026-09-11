@@ -72,7 +72,10 @@ class App {
     int *oldStep;
     float *oldDistance;
     std::atomic<int> worldFinished{0};
+    std::atomic<int> chunkFinished{0};
     std::thread worker;
+    std::thread chunkWorker;
+
     bool cameraMoved = true;
     int frame = 0;
     Vector3*ids;
@@ -969,7 +972,7 @@ class App {
                 if (nextColumnToGenerate < generationOrder.size()) {
                     if (frame%5==0) {
                         size_t candidate = generationOrder.size();
-
+                        #pragma parallel 
                         for (size_t i = nextColumnToGenerate; i < generationOrder.size(); i++) {
                             const int x = generationOrder[i].first;
                             const int z = generationOrder[i].second;
@@ -983,73 +986,80 @@ class App {
                                 break;
                             }
                         }
-
-                        if (candidate != generationOrder.size()) {
-                            std::swap(
-                                generationOrder[nextColumnToGenerate],
-                                generationOrder[candidate]
-                            );
-                            const int x = generationOrder[nextColumnToGenerate].first;
-                            const int z = generationOrder[nextColumnToGenerate].second;
-
-                            using Clock = std::chrono::high_resolution_clock;
-
-                            auto t0 = Clock::now();
-
-                            world->InitColumn(camera.position, x, z);
-
-                            auto t1 = Clock::now();
-
-                            world->GenerateTerrain(world->chunkBiome[x][z], x, z);
-
-                            auto t2 = Clock::now();
-
-                            world->BuildDistanceToClosestVoxel(x, z);
-
-                            auto t3 = Clock::now();
-
-                            world->BuildDistanceLayerBaseline(x, z);
-
-                            auto t4 = Clock::now();
-
-                            world->BuildDistanceLayer(x, z, 8);
-
-                            auto t5 = Clock::now();
-
-                            world->BuildDistanceLayer(x, z, 4);
-
-                            auto t6 = Clock::now();
-
-                            for (int y = 0; y < WORLD_HEIGHT / 32; y++) {
-                                world->voxelChunks[x][y][z].CheckOriginals(
-                                    world->traversalChunks[x][y][z].buildID
+                        if (chunkWorker.joinable()) {
+                            chunkWorker.join();
+                        }
+                        if (candidate != generationOrder.size() && chunkFinished.load() == 0) {
+                                
+                            chunkWorker = std::thread([=]() {
+                                std::swap(
+                                    generationOrder[nextColumnToGenerate],
+                                    generationOrder[candidate]
                                 );
-                            }
+                                const int x = generationOrder[nextColumnToGenerate].first;
+                                const int z = generationOrder[nextColumnToGenerate].second;
 
-                            auto t7 = Clock::now();
+                                using Clock = std::chrono::high_resolution_clock;
 
-                            generatedChunks++;
+                                auto t0 = Clock::now();
 
-                            world->GenerateOccupancyMasks(x, z);
+                                world->InitColumn(camera.position, x, z);
 
-                            auto t8 = Clock::now();
+                                auto t1 = Clock::now();
 
-                            auto ms = [](auto start, auto end) {
-                                return std::chrono::duration<double, std::milli>(end - start).count();
-                            };
+                                world->GenerateTerrain(world->chunkBiome[x][z], x, z);
 
-                            std::cout
-                                << "Column [" << x << ", " << z << "]\n"
-                                << "InitColumn:                     " << ms(t0, t1) << " ms\n"
-                                << "GenerateTerrain:                " << ms(t1, t2) << " ms\n"
-                                << "BuildDistanceToClosestVoxel:    " << ms(t2, t3) << " ms\n"
-                                << "BuildDistanceLayerBaseline:     " << ms(t3, t4) << " ms\n"
-                                << "BuildDistanceLayer 8:           " << ms(t4, t5) << " ms\n"
-                                << "BuildDistanceLayer 4:           " << ms(t5, t6) << " ms\n"
-                                << "CheckOriginals:                 " << ms(t6, t7) << " ms\n"
-                                << "GenerateOccupancyMasks:         " << ms(t7, t8) << " ms\n"
-                                << "TOTAL:                          " << ms(t0, t8) << " ms\n\n";
-                            nextColumnToGenerate++;
+                                auto t2 = Clock::now();
+
+                                world->BuildDistanceToClosestVoxel(x, z);
+
+                                auto t3 = Clock::now();
+
+                                world->BuildDistanceLayerBaseline(x, z);
+
+                                auto t4 = Clock::now();
+
+                                world->BuildDistanceLayer(x, z, 8);
+
+                                auto t5 = Clock::now();
+
+                                world->BuildDistanceLayer(x, z, 4);
+
+                                auto t6 = Clock::now();
+
+                                for (int y = 0; y < WORLD_HEIGHT / 32; y++) {
+                                    world->voxelChunks[x][y][z].CheckOriginals(
+                                        world->traversalChunks[x][y][z].buildID
+                                    );
+                                }
+
+                                auto t7 = Clock::now();
+
+                                generatedChunks++;
+
+                                world->GenerateOccupancyMasks(x, z);
+
+                                auto t8 = Clock::now();
+
+                                auto ms = [](auto start, auto end) {
+                                    return std::chrono::duration<double, std::milli>(end - start).count();
+                                };
+
+                                std::cout
+                                    << "Column [" << x << ", " << z << "]\n"
+                                    << "InitColumn:                     " << ms(t0, t1) << " ms\n"
+                                    << "GenerateTerrain:                " << ms(t1, t2) << " ms\n"
+                                    << "BuildDistanceToClosestVoxel:    " << ms(t2, t3) << " ms\n"
+                                    << "BuildDistanceLayerBaseline:     " << ms(t3, t4) << " ms\n"
+                                    << "BuildDistanceLayer 8:           " << ms(t4, t5) << " ms\n"
+                                    << "BuildDistanceLayer 4:           " << ms(t5, t6) << " ms\n"
+                                    << "CheckOriginals:                 " << ms(t6, t7) << " ms\n"
+                                    << "GenerateOccupancyMasks:         " << ms(t7, t8) << " ms\n"
+                                    << "TOTAL:                          " << ms(t0, t8) << " ms\n\n";
+                                nextColumnToGenerate++;
+                                chunkFinished.store(0);
+                            });
+                            
                         }
                     }
                     
