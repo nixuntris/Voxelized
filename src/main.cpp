@@ -839,7 +839,26 @@ class App {
         int dvdXChange = 1;
         int dvdYChange = 1;
         int gui = 0;
-        
+        uint8_t transparency = 200;
+        VX_GUI::Button returnButton(250,220,300,60,{WHITE.r,WHITE.g,WHITE.b,transparency},3,{BLACK.r,BLACK.g,BLACK.b,transparency},{GRAY.r,GRAY.g,GRAY.b,50});
+        VX_GUI::Label returnLabel(133.5f,115,150,30,"Return",12,TRANSPARENT,{BLACK.r,BLACK.g,BLACK.b,transparency});
+        VX_GUI::Button mainMenuButton(250,220+90,300,60,{WHITE.r,WHITE.g,WHITE.b,transparency},3,{BLACK.r,BLACK.g,BLACK.b,transparency},{GRAY.r,GRAY.g,GRAY.b,50});
+        VX_GUI::Label mainMenuLabel(133.5f,160,150,30,"Main Menu",12,TRANSPARENT,{BLACK.r,BLACK.g,BLACK.b,transparency});
+        VX_GUI::Button graphicsButton(250,220+180,300,60,{WHITE.r,WHITE.g,WHITE.b,transparency},3,{BLACK.r,BLACK.g,BLACK.b,transparency},{GRAY.r,GRAY.g,GRAY.b,50});
+        VX_GUI::Label graphicsLabel(133.5f,205,150,30,"Graphics",12,TRANSPARENT,{BLACK.r,BLACK.g,BLACK.b,transparency});
+        VX_GUI::Button quitButton(250,220+270,300,60,{WHITE.r,WHITE.g,WHITE.b,transparency},3,{BLACK.r,BLACK.g,BLACK.b,transparency},{GRAY.r,GRAY.g,GRAY.b,50});
+        VX_GUI::Label quitLabel(133.5f,250,150,30,"Quit",12,TRANSPARENT,{BLACK.r,BLACK.g,BLACK.b,transparency});
+        VX_GUI::Button graphicsReturnButton(250,220-90,300,60,{WHITE.r,WHITE.g,WHITE.b,transparency},3,{BLACK.r,BLACK.g,BLACK.b,transparency},{GRAY.r,GRAY.g,GRAY.b,50});
+        VX_GUI::Label graphicsReturnLabel(133.5f,70,150,30,"Return",12,TRANSPARENT,{BLACK.r,BLACK.g,BLACK.b,transparency});
+        VX_GUI::Button nativeButton(250,220,300,60,{WHITE.r,WHITE.g,WHITE.b,transparency},3,{BLACK.r,BLACK.g,BLACK.b,transparency},{GRAY.r,GRAY.g,GRAY.b,50});
+        VX_GUI::Label nativeLabel(133.5f,115,150,30,"Native",12,TRANSPARENT,{BLACK.r,BLACK.g,BLACK.b,transparency});
+        VX_GUI::Button eightyButton(250,220+90,300,60,{WHITE.r,WHITE.g,WHITE.b,transparency},3,{BLACK.r,BLACK.g,BLACK.b,transparency},{GRAY.r,GRAY.g,GRAY.b,50});
+        VX_GUI::Label eightyLabel(133.5f,160,150,30,"80%",12,TRANSPARENT,{BLACK.r,BLACK.g,BLACK.b,transparency});
+        VX_GUI::Button sixtySixButton(250,220+180,300,60,{WHITE.r,WHITE.g,WHITE.b,transparency},3,{BLACK.r,BLACK.g,BLACK.b,transparency},{GRAY.r,GRAY.g,GRAY.b,50});
+        VX_GUI::Label sixtySixLabel(133.5f,205,150,30,"66%",12,TRANSPARENT,{BLACK.r,BLACK.g,BLACK.b,transparency});
+        VX_GUI::Button createWorldButton(0,200,200,50,WHITE,3,BLACK,{GRAY.r,GRAY.g,GRAY.b,50});
+        VX_GUI::Label createWorldLabel(-4,96,100,25,"Create World",12,TRANSPARENT,{BLACK.r,BLACK.g,BLACK.b,transparency});
+
         while (!WindowShouldClose()) {
             BeginDrawing();
             ClearBackground(WHITE);
@@ -889,99 +908,63 @@ class App {
                         
                 DrawFPS(0, 0);
                 if (gui==2) {
-                    uint8_t transparency = 200;
-                    DrawRectangle(250,220,300,60,{WHITE.r,WHITE.g,WHITE.b,transparency});
-                    DrawRectangleLinesEx({250.0f, 220.0f, 300.0f, 60.0f}, 3,  {BLACK.r,BLACK.g,BLACK.b,transparency});
-                    DrawText("Return", 275, 238, 24,  {BLACK.r,BLACK.g,BLACK.b,transparency});
-                    if (CheckCollisionRecs({250.0f, 220.0f, 300.0f, 60.0f},{(float)GetMouseX(),(float)GetMouseY(),1,1})) {
-                        if (IsMouseButtonPressed(0)) {
-                            gui = 0;
-                            DisableCursor();
-                            SetTargetFPS(-1);
-                        }
+                    if (returnButton.Update(0,0,1,1)) {
+                        gui = 0;
+                        DisableCursor();
+                        SetTargetFPS(-1);
                     }
-                    else if (CheckCollisionRecs({250.0f, 220.0f+180.0f, 300.0f, 60.0f},{(float)GetMouseX(),(float)GetMouseY(),1,1})) {
-                        if (IsMouseButtonPressed(0)) {
-                            gui = 1;
-                        }
+                    else if (graphicsButton.Update(0,0,1,1)) {
+                        gui = 1;
                     }
-                    else if (CheckCollisionRecs({250.0f, 220.0f+90.0f, 300.0f, 60.0f},{(float)GetMouseX(),(float)GetMouseY(),1,1})) {
-                        if (IsMouseButtonPressed(0)) {
-                            if (worker.joinable()) {
-                                worker.join();
-                            }
-                            world->Reset();
-                            generationOrder.clear();
-                            nextColumnToGenerate = 0;
-                            nextColumnToFinalize = 0;
-                            worldFinished = 0;
-                            gui = 0;
+                    else if (mainMenuButton.Update(0,0,1,1)) {
+                        if (worker.joinable()) {
+                            worker.join();
                         }
+                        world->Reset();
+                        generationOrder.clear();
+                        nextColumnToGenerate = 0;
+                        nextColumnToFinalize = 0;
+                        worldFinished = 0;
+                        gui = 0;
                     }
-                    else if (CheckCollisionRecs({250.0f, 220.0+270.0f, 300.0f, 60.0f},{(float)GetMouseX(),(float)GetMouseY(),1,1})) {
-                        if (IsMouseButtonPressed(0)) {
-                            CloseWindow();
-                        }
+                    else if (quitButton.Update(0,0,1,1)) {
+                        CloseWindow();
                     }
-                    DrawRectangle(250,220+90,300,60,{WHITE.r,WHITE.g,WHITE.b,transparency});
-                    DrawRectangleLinesEx({250.0f, 220.0f + 90, 300.0f, 60.0f}, 3,  {BLACK.r,BLACK.g,BLACK.b,transparency});
-                    DrawText("Main Menu", 275, 328, 24,  {BLACK.r,BLACK.g,BLACK.b,transparency});
-                   
-                    DrawRectangle(250,220+180,300,60,{WHITE.r,WHITE.g,WHITE.b,transparency});
-                    DrawRectangleLinesEx({250.0f, 220.0f + 180, 300.0f, 60.0f}, 3,  {BLACK.r,BLACK.g,BLACK.b,transparency});
-                    DrawText("Graphics", 275, 418, 24,  {BLACK.r,BLACK.g,BLACK.b,transparency});
-                   
-                    DrawRectangle(250,220+270,300,60,{WHITE.r,WHITE.g,WHITE.b,transparency});
-                    DrawRectangleLinesEx({250.0f, 220.0f + 270.0f, 300.0f, 60.0f}, 3, {BLACK.r,BLACK.g,BLACK.b,transparency});
-                    DrawText("Quit", 275, 508, 24,  {BLACK.r,BLACK.g,BLACK.b,transparency});
-                    
+                    returnLabel.Update(0,0,2,2);
+                    mainMenuLabel.Update(0,0,2,2);
+                    graphicsLabel.Update(0,0,2,2);
+                    quitLabel.Update(0,0,2,2);
+
                 }
                 else if (gui==1) {
-                    uint8_t transparency = 200;
-                    DrawRectangle(250,220-90,300,60,{WHITE.r,WHITE.g,WHITE.b,transparency});
-                    DrawRectangleLinesEx({250.0f, 220.0f-90, 300.0f, 60.0f}, 3,  {BLACK.r,BLACK.g,BLACK.b,transparency});
-                    DrawText("Return", 275, 238-90, 24,  {BLACK.r,BLACK.g,BLACK.b,transparency});
-                    if (CheckCollisionRecs({250.0f, 220.0f-90, 300.0f, 60.0f},{(float)GetMouseX(),(float)GetMouseY(),1,1})) {
-                        if (IsMouseButtonPressed(0)) {
-                            gui = 2;
-                        }
+                    if (graphicsReturnButton.Update(0,0,1,1)) {
+                        gui = 2;
                     }
-                    DrawRectangle(250,220,300,60,{WHITE.r,WHITE.g,WHITE.b,transparency});
-                    DrawRectangleLinesEx({250.0f, 220.0f, 300.0f, 60.0f}, 3,  {BLACK.r,BLACK.g,BLACK.b,transparency});
-                    DrawText("Native", 275, 238, 24,  {BLACK.r,BLACK.g,BLACK.b,transparency});
-                    if (CheckCollisionRecs({250.0f, 220.0f, 300.0f, 60.0f},{(float)GetMouseX(),(float)GetMouseY(),1,1})) {
-                        if (IsMouseButtonPressed(0)) {
-                            SCALE = 1;
-                            width = 800/SCALE;
-                            height = 800/SCALE;
-                            cameraMoved = true;
-                            Render();
-                        }
+                    if (nativeButton.Update(0,0,1,1)) {
+                        SCALE = 1;
+                        width = 800/SCALE;
+                        height = 800/SCALE;
+                        cameraMoved = true;
+                        Render();
                     }
-                    DrawRectangle(250,220+90,300,60,{WHITE.r,WHITE.g,WHITE.b,transparency});
-                    DrawRectangleLinesEx({250.0f, 220.0f + 90.0f, 300.0f, 60.0f}, 3,  {BLACK.r,BLACK.g,BLACK.b,transparency});
-                    DrawText("80%", 275, 328, 24,  {BLACK.r,BLACK.g,BLACK.b,transparency});
-                    if (CheckCollisionRecs({250.0f, 220.0f+90.0f, 300.0f, 60.0f},{(float)GetMouseX(),(float)GetMouseY(),1,1})) {
-                        if (IsMouseButtonPressed(0)) {
-                            SCALE = 1.3;
-                            width = 800/SCALE;
-                            height = 800/SCALE;
-                            cameraMoved = true;
-                            Render();
-                        }
+                    if (eightyButton.Update(0,0,1,1)) {
+                        SCALE = 1.3;
+                        width = 800/SCALE;
+                        height = 800/SCALE;
+                        cameraMoved = true;
+                        Render();
                     }
-                    DrawRectangle(250,220+180,300,60,{WHITE.r,WHITE.g,WHITE.b,transparency});
-                    DrawRectangleLinesEx({250.0f, 220.0f + 180.0f, 300.0f, 60.0f}, 3, {BLACK.r,BLACK.g,BLACK.b,transparency});
-                    DrawText("66%", 275, 418, 24,  {BLACK.r,BLACK.g,BLACK.b,transparency});
-                    if (CheckCollisionRecs({250.0f, 220.0+180.0f, 300.0f, 60.0f},{(float)GetMouseX(),(float)GetMouseY(),1,1})) {
-                        if (IsMouseButtonPressed(0)) {
-                            SCALE = 1.5;
-                            width = 800/SCALE;
-                            height = 800/SCALE;
-                            cameraMoved = true;
-                            Render();
-                        }
+                    if (sixtySixButton.Update(0,0,1,1)) {
+                        SCALE = 1.5;
+                        width = 800/SCALE;
+                        height = 800/SCALE;
+                        cameraMoved = true;
+                        Render();
                     }
+                    graphicsReturnLabel.Update(0,0,2,2);
+                    nativeLabel.Update(0,0,2,2);
+                    eightyLabel.Update(0,0,2,2);
+                    sixtySixLabel.Update(0,0,2,2);
                 }
                 if (nextColumnToGenerate < generationOrder.size()) {
                     if (frame%5==0) {
@@ -1100,12 +1083,9 @@ class App {
             }
             else if (worldFinished==0) {
                 
-                DrawRectangleLinesEx({0, 200, 200.0f, 50.0f}, 3, BLACK);
-                DrawText("Create World", 0, 200, 20, BLACK);
-                if (CheckCollisionRecs({0, 200, 200.0f, 50.0f},{(float)GetMouseX(),(float)GetMouseY(),1,1})) {
-                    DrawRectangle(0, 200, 200.0f, 50.0f, {GRAY.r,GRAY.g,GRAY.b,50});
-                        
-                    if (IsMouseButtonDown(0)) {
+                bool createWorldPressed = createWorldButton.Update(0,0,1,1);
+                createWorldLabel.Update(0,0,2,2);
+                if (createWorldPressed) {
                         generationOrder.clear();
                         nextColumnToGenerate = 0;
                         nextColumnToFinalize = 0;
@@ -1139,7 +1119,6 @@ class App {
                         });
                         DisableCursor();
                         SetTargetFPS(-1);
-                    }
                 }
                 EndDrawing();
             }
@@ -1151,7 +1130,6 @@ class App {
 };
 
 int main() {
-//    App *app = new App;
-  //  app->Run();
-  VX_GUI::TestScene();
+    App *app = new App;
+    app->Run();
 }

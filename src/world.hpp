@@ -111,7 +111,7 @@ struct VoxelChunk {
     int lod = -1;
     bool chunkedPallete = false;
     int size = 0;
-    int Generate(uint8_t* heightMap,uint8_t* noiseXY,uint8_t* noiseXZ,uint8_t* noiseYZ,int chunkX, int chunkY, int chunkZ,WorldType worldType = WORLD_PLAINS) {
+    inline int Generate(uint8_t* heightMap,uint8_t* noiseXY,uint8_t* noiseXZ,uint8_t* noiseYZ,int chunkX, int chunkY, int chunkZ,WorldType worldType = WORLD_PLAINS) {
         containsBlocks = false;
 
         auto EnsureStorage = [&]() {
