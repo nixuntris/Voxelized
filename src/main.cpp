@@ -73,6 +73,8 @@ class App {
     float *oldDistance;
     std::atomic<int> worldFinished{0};
     std::atomic<int> chunkFinished{0};
+    std::atomic<int> generatingColumnX{-1};
+    std::atomic<int> generatingColumnZ{-1};
     std::thread worker;
     std::thread chunkWorker;
 
@@ -116,6 +118,8 @@ class App {
     }
     void Render() {
         matView = MatrixLookAt(camera.position, camera.target, camera.up);
+        const int activeGenerationX = generatingColumnX.load(std::memory_order_acquire);
+        const int activeGenerationZ = generatingColumnZ.load(std::memory_order_acquire);
 
         Matrix viewInv = MatrixInvert(matView);
         auto dirStart = Clock::now();
@@ -126,20 +130,6 @@ class App {
                 int cameraChunkX = (int)camera.position.x / 32;
                 int cameraChunkZ = (int)camera.position.z / 32;
 
-                std::sort(
-                    generationOrder.begin() + nextColumnToGenerate,
-                    generationOrder.end(),
-                    [cameraChunkX, cameraChunkZ](const std::pair<int, int>& a,
-                                                const std::pair<int, int>& b) {
-                        int adx = a.first - cameraChunkX;
-                        int adz = a.second - cameraChunkZ;
-                        int bdx = b.first - cameraChunkX;
-                        int bdz = b.second - cameraChunkZ;
-
-                        return adx * adx + adz * adz <
-                            bdx * bdx + bdz * bdz;
-                    }
-                );
             }
             #pragma omp parallel for
             for (int y = 0; y < height; y++) {
@@ -217,11 +207,14 @@ class App {
                         const int ix = (int)voxelX;
                         const int iy = (int)voxelY;
                         const int iz = (int)voxelZ;
-                        TraversalChunk &chunk = world->traversalChunks[ix >> 5][iy >> 5][iz >> 5];
+                        const int cx = ix >> 5;
+                        const int cz = iz >> 5;
+                        if (cx == activeGenerationX && cz == activeGenerationZ) break;
+                        TraversalChunk &chunk = world->traversalChunks[cx][iy >> 5][cz];
                         const int lx = ix & 31;
                         const int ly = iy & 31;
                         const int lz = iz & 31;
-                        if (!world->voxelChunks[ix>>5][iy>>5][iz>>5].generated) break;
+                        if (!world->voxelChunks[cx][iy>>5][cz].generated) break;
                         const float jump = std::max({
                             STEP(chunk.distanceToClosestVoxel, 32),
                             STEP(chunk.distance16[IDX(lx >> 4, ly >> 4, lz >> 4, 2)], 16),
@@ -326,9 +319,6 @@ class App {
         }
         auto renderStart = Clock::now();
         
-        //std::cout<<"m0: "<<matView.m0<<" m4: "<<matView.m4<<"m8:"<<matView.m8<<" m12:"<<matView.m12<<"\n";
-        //std::cout<<"m1: "<<matView.m1<<" m5: "<<matView.m5<<"m9:"<<matView.m9<<" m13:"<<matView.m13<<"\n";
-        //std::cout<<"m2: "<<matView.m2<<" m6: "<<matView.m6<<"m0:"<<matView.m10<<" m14:"<<matView.m14<<"\n";
         #pragma omp parallel for collapse(2)
         for (int x = 0; x < width; x+=1) {
             for (int y = 0; y < height; y+=1) {
@@ -365,6 +355,7 @@ class App {
                     int cx = voxelX / 32;
                     int cy = voxelY / 32;
                     int cz = voxelZ / 32;
+                    if (cx == activeGenerationX && cz == activeGenerationZ) break;
                     if (!world->voxelChunks[cx][cy][cz].generated) break;
                     if (world->voxelChunks[cx][cy][cz].containsBlocks) {
                         int lx = int(voxelX) % 32;
@@ -627,6 +618,7 @@ class App {
                             int lx = ix & 31;
                             int ly = iy & 31;
                             int lz = iz & 31;
+                            if (cx == activeGenerationX && cz == activeGenerationZ) break;
                             if (!world->voxelChunks[cx][cy][cz].generated) break;
                             if (world->voxelChunks[cx][cy][cz].containsBlocks) {
                                 int lodr = world->voxelChunks[cx][cy][cz].lod; 
@@ -760,6 +752,7 @@ class App {
                         int lx = ix & 31;
                         int ly = iy & 31;
                         int lz = iz & 31;
+                        if (cx == activeGenerationX && cz == activeGenerationZ) break;
                         TraversalChunk& chunk = world->traversalChunks[cx][cy][cz];
                         if (!world->voxelChunks[cx][cy][cz].generated) break;
                         if (world->voxelChunks[cx][cy][cz].containsBlocks) {
@@ -923,6 +916,12 @@ class App {
                         if (worker.joinable()) {
                             worker.join();
                         }
+                        if (chunkWorker.joinable()) {
+                            chunkWorker.join();
+                        }
+                        generatingColumnX.store(-1, std::memory_order_release);
+                        generatingColumnZ.store(-1, std::memory_order_release);
+                        chunkFinished.store(0, std::memory_order_release);
                         world->Reset();
                         generationOrder.clear();
                         nextColumnToGenerate = 0;
@@ -969,41 +968,53 @@ class App {
                     eightyLabel.Update(0,0,2,2);
                     sixtySixLabel.Update(0,0,2,2);
                 }
+                if (chunkFinished.load(std::memory_order_acquire) == 2) {
+                    if (chunkWorker.joinable()) {
+                        chunkWorker.join();
+                    }
+                    generatingColumnX.store(-1, std::memory_order_release);
+                    generatingColumnZ.store(-1, std::memory_order_release);
+                    chunkFinished.store(0, std::memory_order_release);
+                    nextColumnToGenerate++;
+                    generatedChunks++;
+                }
                 if (nextColumnToGenerate < generationOrder.size()) {
-                    if (frame%5==0) {
+                    if (frame%5==0 && chunkFinished.load(std::memory_order_acquire) == 0) {
                         size_t candidate = generationOrder.size();
-                        #pragma parallel 
+                        float bestDistance = std::numeric_limits<float>::max();
                         for (size_t i = nextColumnToGenerate; i < generationOrder.size(); i++) {
                             const int x = generationOrder[i].first;
                             const int z = generationOrder[i].second;
 
                             float dx = x * 32.0f + 16.0f - camera.position.x;
                             float dz = z * 32.0f + 16.0f - camera.position.z;
+                            float distance = dx * dx + dz * dz;
 
-                            if (dx * dx + dz * dz <= RENDERDISTANCE * RENDERDISTANCE &&
-                                ColumnInFrustum(x, z, camera.position, matView, matProj) && Vector2Distance({camera.position.x,camera.position.z},{x*32.0f,z*32.0f})<RENDERDISTANCE) {
+                            if (distance <= RENDERDISTANCE * RENDERDISTANCE &&
+                                distance < bestDistance &&
+                                ColumnInFrustum(x, z, camera.position, matView, matProj)) {
                                 candidate = i;
-                                break;
+                                bestDistance = distance;
                             }
                         }
-                        if (chunkWorker.joinable()) {
-                            chunkWorker.join();
-                        }
-                        if (candidate != generationOrder.size() && chunkFinished.load() == 0) {
-                                
-                            chunkWorker = std::thread([=]() {
-                                std::swap(
-                                    generationOrder[nextColumnToGenerate],
-                                    generationOrder[candidate]
-                                );
-                                const int x = generationOrder[nextColumnToGenerate].first;
-                                const int z = generationOrder[nextColumnToGenerate].second;
+                        if (candidate != generationOrder.size()) {
+                            std::swap(
+                                generationOrder[nextColumnToGenerate],
+                                generationOrder[candidate]
+                            );
+                            const int x = generationOrder[nextColumnToGenerate].first;
+                            const int z = generationOrder[nextColumnToGenerate].second;
+                            const Vector3 generationCameraPosition = camera.position;
 
+                            generatingColumnX.store(x, std::memory_order_release);
+                            generatingColumnZ.store(z, std::memory_order_release);
+                            chunkFinished.store(1, std::memory_order_release);
+                            chunkWorker = std::thread([this, x, z, generationCameraPosition]() {
                                 using Clock = std::chrono::high_resolution_clock;
 
                                 auto t0 = Clock::now();
 
-                                world->InitColumn(camera.position, x, z);
+                                world->InitColumn(generationCameraPosition, x, z);
 
                                 auto t1 = Clock::now();
 
@@ -1035,8 +1046,6 @@ class App {
 
                                 auto t7 = Clock::now();
 
-                                generatedChunks++;
-
                                 world->GenerateOccupancyMasks(x, z);
 
                                 auto t8 = Clock::now();
@@ -1056,15 +1065,13 @@ class App {
                                     << "CheckOriginals:                 " << ms(t6, t7) << " ms\n"
                                     << "GenerateOccupancyMasks:         " << ms(t7, t8) << " ms\n"
                                     << "TOTAL:                          " << ms(t0, t8) << " ms\n\n";
-                                nextColumnToGenerate++;
-                                chunkFinished.store(0);
+                                chunkFinished.store(2, std::memory_order_release);
                             });
-                            
                         }
                     }
                     
                 }
-                else if (nextColumnToFinalize < generationOrder.size()) {
+                else if (chunkFinished.load(std::memory_order_acquire) == 0 && nextColumnToFinalize < generationOrder.size()) {
                     const int x = generationOrder[nextColumnToFinalize].first;
                     const int z = generationOrder[nextColumnToFinalize].second;
 
@@ -1081,7 +1088,6 @@ class App {
                 
             }
             else if (worldFinished==1) {
-                //SetTargetFPS(60);
                 if (dvdX>width || dvdX<0) dvdXChange *= -1;
                 if (dvdY>height || dvdY<0) dvdYChange *= -1; 
                 dvdX+=dvdXChange;
@@ -1132,6 +1138,12 @@ class App {
                 }
                 EndDrawing();
             }
+        if (chunkWorker.joinable()) {
+            chunkWorker.join();
+        }
+        if (worker.joinable()) {
+            worker.join();
+        }
         std::cout<<generatedChunks<<"\n";
     }
 }
