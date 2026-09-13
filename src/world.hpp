@@ -498,6 +498,8 @@ struct TraversalChunk {
     }
 };
 struct World {
+    uint8_t *cloudNoise;       
+    uint8_t *cloudHeight;       
     VoxelChunk voxelChunks[WORLD_WIDTH/32][WORLD_HEIGHT/32][WORLD_DEPTH/32];
     TraversalChunk traversalChunks[WORLD_WIDTH/32][WORLD_HEIGHT/32][WORLD_DEPTH/32];
     WorldType chunkBiome[WORLD_WIDTH/32][WORLD_DEPTH/32];
