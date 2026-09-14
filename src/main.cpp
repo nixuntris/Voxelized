@@ -63,6 +63,7 @@ class App {
         world->cloudNoise =  GenImagePerlinNoiseOptimized(1024,1024,0,0,16);
         world->cloudHeight = GenImagePerlinNoiseOptimized(1024,1024,0,0,64);
         camera.position = {(float)WORLD_WIDTH/2,WORLD_HEIGHT/2,(float)WORLD_DEPTH/2};
+
     }
     
     void Run() {
@@ -139,7 +140,12 @@ class App {
                     (Vector2){0, 0}, 0, WHITE);
                 
                 }    
-                        
+                     
+                BeginMode3D(camera);
+                for (int i = 0; i < world->lightSourceCount; i++) {
+                    DrawSphere(world->lightSources[i].position, 1.0f, YELLOW);
+                }
+                EndMode3D();   
                 DrawFPS(0, 0);
                 if (gui==2) {
                     if (returnButton.Update(0,0,1,1)) {
@@ -403,6 +409,11 @@ class App {
                             nextColumnToGenerate++;
                             generatedChunks++;
                         }
+                        world->lightSources[world->lightSourceCount].position = {WORLD_WIDTH/2.0f, 120, WORLD_DEPTH/2.0f};
+                        world->lightSources[world->lightSourceCount].colorR = 255;
+                        world->lightSources[world->lightSourceCount].colorG = 255;
+                        world->lightSources[world->lightSourceCount].colorB = 255;  
+                        world->lightSourceCount++;
                         worldFinished.store(2);
                     });
                     DisableCursor();

@@ -739,7 +739,7 @@ struct Viewport {
                 float baseR = colors[type].r * strengthR;
                 float baseG = colors[type].g * strengthG;
                 float baseB = colors[type].b * strengthB;
-
+                
                 float finalR = baseR * (1.0f - mixStrength)
                             + colorToMix.r * mixStrength;
 
@@ -748,7 +748,15 @@ struct Viewport {
 
                 float finalB = baseB * (1.0f - mixStrength)
                             + colorToMix.b * mixStrength;
+                for (int i = 0; i < world->lightSourceCount; i++) {
+                    if (Vector3Distance({hits[pixelIndex].x,hits[pixelIndex].y,hits[pixelIndex].z},world->lightSources[i].position)<50) {
 
+                        finalR += float(world->lightSources[i].colorR)/255.0f;
+                        finalG += float(world->lightSources[i].colorG)/255.0f;
+                        finalB += float(world->lightSources[i].colorB)/255.0f;
+                    }
+
+                }
                 ((unsigned char*)imageBuffer.data)[idx] =Clamp(finalR, 0.0f, 255.0f);
                 ((unsigned char*)imageBuffer.data)[idx + 1] =Clamp(finalG, 0.0f, 255.0f);
                 ((unsigned char*)imageBuffer.data)[idx + 2] =Clamp(finalB, 0.0f, 255.0f);

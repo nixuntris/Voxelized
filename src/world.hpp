@@ -116,8 +116,6 @@ struct VoxelChunk {
     int lod = -1;
     bool chunkedPallete = false;
     int size = 0;
-    LightSource lightSources[16];
-    int lightSourceCount = 0;
     inline int Generate(uint8_t* heightMap,uint8_t* noiseXY,uint8_t* noiseXZ,uint8_t* noiseYZ,int chunkX, int chunkY, int chunkZ,WorldType worldType = WORLD_PLAINS) {
         containsBlocks = false;
 
@@ -511,8 +509,12 @@ struct World {
     TraversalChunk traversalChunks[WORLD_WIDTH/32][WORLD_HEIGHT/32][WORLD_DEPTH/32];
     WorldType chunkBiome[WORLD_WIDTH/32][WORLD_DEPTH/32];
     
+    LightSource lightSources[16];
+    int lightSourceCount = 0;
+
     void Reset()
 {
+    lightSourceCount = 0;
     const int CHUNK_COUNT_X = WORLD_WIDTH  / 32;
     const int CHUNK_COUNT_Y = WORLD_HEIGHT / 32;
     const int CHUNK_COUNT_Z = WORLD_DEPTH  / 32;
