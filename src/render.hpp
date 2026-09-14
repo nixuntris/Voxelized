@@ -20,6 +20,7 @@ float invDz = 1.0f / sunDirection.z;
 int sunPosX = sunDirection.x > 0.0f;
 int sunPosY = sunDirection.y > 0.0f;
 int sunPosZ = sunDirection.z > 0.0f;
+float sunStrength = 0.3;
 struct Hit {
     float t;
     float x,y,z;
@@ -112,9 +113,9 @@ struct Viewport {
                 uint8_t type = hits[pixelIndex].type;
                 if (type==0) continue;;
                 float ambienceEffect = 0.36;
-                float strengthR = 1.0f-ambienceEffect+(float(SKYCOLOR.r)/255.0f)*ambienceEffect;
-                float strengthG = 1.0f-ambienceEffect+(float(SKYCOLOR.g)/255.0f)*ambienceEffect;
-                float strengthB = 1.0f-ambienceEffect+(float(SKYCOLOR.b)/255.0f)*ambienceEffect;
+                float strengthR = (1.0f-ambienceEffect+(float(SKYCOLOR.r)/255.0f)*ambienceEffect)*sunStrength;
+                float strengthG = (1.0f-ambienceEffect+(float(SKYCOLOR.g)/255.0f)*ambienceEffect)*sunStrength;
+                float strengthB = (1.0f-ambienceEffect+(float(SKYCOLOR.b)/255.0f)*ambienceEffect)*sunStrength;
                 
                 int origVoxelX = (int)hits[pixelIndex].x;
                 int origVoxelY = (int)hits[pixelIndex].y;
@@ -148,16 +149,16 @@ struct Viewport {
                     while (shadowT < 256.0f) {
                         if (shadowX < 0.0f || shadowY < 0.0f || shadowZ < 0.0f ||
                             shadowX >= WORLD_WIDTH || shadowY >= WORLD_HEIGHT || shadowZ >= WORLD_DEPTH) {
-                            strengthR = 1.0f;
-                            strengthG = 1.0f;
-                            strengthB = 1.0f;
+                            strengthR = sunStrength;
+                            strengthG = sunStrength;
+                            strengthB = sunStrength;
                             int dx = origVoxelX>>5;
                             int dy = origVoxelY>>5;
                             int dz = origVoxelZ>>5;
                             int id = IDX((origVoxelX % 32) / origLod, (origVoxelY % 32) / origLod, (origVoxelZ % 32) / origLod, origSize);
-                            world->voxelChunks[dx][dy][dz].voxelLightValueR[id] = 255;
-                            world->voxelChunks[dx][dy][dz].voxelLightValueG[id] = 255;
-                            world->voxelChunks[dx][dy][dz].voxelLightValueB[id] = 255;
+                            world->voxelChunks[dx][dy][dz].voxelLightValueR[id] = 255*sunStrength;
+                            world->voxelChunks[dx][dy][dz].voxelLightValueG[id] = 255*sunStrength;
+                            world->voxelChunks[dx][dy][dz].voxelLightValueB[id] = 255*sunStrength;
                             
                             break;
                         }
@@ -293,9 +294,9 @@ struct Viewport {
                 if (cloudStrength>1) {
                     cloudStrength = 1;
                 }
-                ((unsigned char *)imageCloudBuffer.data)[idx]     = 255*cloudStrength;
-                ((unsigned char *)imageCloudBuffer.data)[idx + 1] = 255*cloudStrength;
-                ((unsigned char *)imageCloudBuffer.data)[idx + 2] = 255*cloudStrength;
+                ((unsigned char *)imageCloudBuffer.data)[idx]     = 255*cloudStrength*sunStrength;
+                ((unsigned char *)imageCloudBuffer.data)[idx + 1] = 255*cloudStrength*sunStrength;
+                ((unsigned char *)imageCloudBuffer.data)[idx + 2] = 255*cloudStrength*sunStrength;
                 ((unsigned char *)imageCloudBuffer.data)[idx + 3] = 255*cloudStrength;
             }
         }
@@ -504,9 +505,9 @@ struct Viewport {
                 int pixelIndex = x * BUFFER_HEIGHT + y;
                 if (hits[pixelIndex].traced) continue;
                 if ((x + y + frame) % 2 == 0) continue;
-                ((unsigned char *)imageBuffer.data)[idx] = SKYCOLOR.r;
-                ((unsigned char *)imageBuffer.data)[idx + 1] = SKYCOLOR.g;
-                ((unsigned char *)imageBuffer.data)[idx + 2] = SKYCOLOR.b;
+                ((unsigned char *)imageBuffer.data)[idx] = SKYCOLOR.r*sunStrength;
+                ((unsigned char *)imageBuffer.data)[idx + 1] = SKYCOLOR.g*sunStrength;
+                ((unsigned char *)imageBuffer.data)[idx + 2] = SKYCOLOR.b*sunStrength;
 
                 Vector3 direction = directionStorage[pixelIndex];
                 float t = oldDistance[pixelIndex];
@@ -630,9 +631,9 @@ struct Viewport {
                 if ((x + y + frame) % 2 == 0) continue;
                 uint8_t type = hits[pixelIndex].type;
                 float ambienceEffect = 0.36;
-                float strengthR = 1.0f-ambienceEffect+(float(SKYCOLOR.r)/255.0f)*ambienceEffect;
-                float strengthG = 1.0f-ambienceEffect+(float(SKYCOLOR.g)/255.0f)*ambienceEffect;
-                float strengthB = 1.0f-ambienceEffect+(float(SKYCOLOR.b)/255.0f)*ambienceEffect;
+                float strengthR = (1.0f-ambienceEffect+(float(SKYCOLOR.r)/255.0f)*ambienceEffect)*sunStrength;
+                float strengthG = (1.0f-ambienceEffect+(float(SKYCOLOR.g)/255.0f)*ambienceEffect)*sunStrength;
+                float strengthB = (1.0f-ambienceEffect+(float(SKYCOLOR.b)/255.0f)*ambienceEffect)*sunStrength;
                 
                 int origVoxelX = (int)hits[pixelIndex].x;
                 int origVoxelY = (int)hits[pixelIndex].y;

@@ -50,7 +50,6 @@ struct VoxelData {
     float lightAbsorbB;
     bool translucent;
     bool reflective;
-
 };
 const float shadowQuality = 1;
 const VoxelData voxelMetaData[10] = {
@@ -97,6 +96,12 @@ enum WorldType {
     CLOUD
 };
 int generatedChunks = 0;
+struct LightSource {
+    Vector3 position;
+    uint8_t colorR;
+    uint8_t colorG;
+    uint8_t colorB;
+};
 struct VoxelChunk {
     bool generated = false;
     uint8_t *voxels = nullptr;
@@ -111,6 +116,8 @@ struct VoxelChunk {
     int lod = -1;
     bool chunkedPallete = false;
     int size = 0;
+    LightSource lightSources[16];
+    int lightSourceCount = 0;
     inline int Generate(uint8_t* heightMap,uint8_t* noiseXY,uint8_t* noiseXZ,uint8_t* noiseYZ,int chunkX, int chunkY, int chunkZ,WorldType worldType = WORLD_PLAINS) {
         containsBlocks = false;
 
