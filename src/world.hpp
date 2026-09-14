@@ -88,7 +88,7 @@ const float LOD32_START = 32.0f / PIXEL_WORLD_SLOPE;
 const int WORLD_WIDTH = 8192*4;
 const int WORLD_DEPTH = 8192*4;
 const int WORLD_HEIGHT = 512;
-const int RENDERDISTANCE = 2048;
+const int RENDERDISTANCE = 256;
 enum WorldType {
     WORLD_PLAINS = 0,
     WORLD_MOUNTAINS,
@@ -503,7 +503,7 @@ struct World {
     VoxelChunk voxelChunks[WORLD_WIDTH/32][WORLD_HEIGHT/32][WORLD_DEPTH/32];
     TraversalChunk traversalChunks[WORLD_WIDTH/32][WORLD_HEIGHT/32][WORLD_DEPTH/32];
     WorldType chunkBiome[WORLD_WIDTH/32][WORLD_DEPTH/32];
-
+    
     void Reset()
 {
     const int CHUNK_COUNT_X = WORLD_WIDTH  / 32;
@@ -1007,7 +1007,17 @@ struct World {
             traversalChunks[x][y][z].Init(lod);
         }
     }
-
+    
+    void InitOneType(WorldType worldType) {
+        
+        const int chunksX = WORLD_WIDTH / 32;
+        const int chunksZ = WORLD_DEPTH / 32;
+        for (int x = 0; x < chunksX; x++) {
+            for (int z = 0; z < chunksZ; z++) {
+                chunkBiome[x][z] = worldType;
+            }
+        }
+    }
     void Init() {
         const int chunksX = WORLD_WIDTH / 32;
         const int chunksZ = WORLD_DEPTH / 32;
