@@ -98,6 +98,7 @@ enum WorldType {
 int generatedChunks = 0;
 struct LightSource {
     Vector3 position;
+    float intensity;
     uint8_t colorR;
     uint8_t colorG;
     uint8_t colorB;

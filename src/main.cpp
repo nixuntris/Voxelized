@@ -93,8 +93,13 @@ class App {
         VX_GUI::Label sixtySixLabel(133.5f,205,150,30,"66%",12,TRANSPARENT,BLACK_GUI_COLOR);
         VX_GUI::Button createWorldButton(0,200,200,50,WHITE,3,BLACK,HOVER_COLOR);
         VX_GUI::Label createWorldLabel(-4,96,100,25,"Create World",12,TRANSPARENT,BLACK_GUI_COLOR);
-
         while (!WindowShouldClose()) {
+            world->lightSources[0].position.x += sinf((float)frame/100.0f)*0.5f;
+            world->lightSources[0].position.z += cosf((float)frame/100.0f)*0.5f;
+
+            world->lightSources[1].position.x += sinf((float)frame/100.0f)*0.5f;
+            world->lightSources[1].position.z += cosf((float)frame/100.0f)*0.5f;
+
             BeginDrawing();
             ClearBackground(WHITE);
             frame++;
@@ -372,48 +377,20 @@ class App {
                     worker = std::thread([=]() {
                         world->InitOneType(WORLD_PLAINS);
 
-                        for (size_t i = 0; i < generationOrder.size(); i++) {
-                            const int x = generationOrder[i].first;
-                            const int z = generationOrder[i].second;
-
-                            float dx = x * 32.0f + 16.0f - camera.position.x;
-                            float dz = z * 32.0f + 16.0f - camera.position.z;
-
-                            float distanceSquared = dx * dx + dz * dz;
-
-                            if (distanceSquared > RENDERDISTANCE * RENDERDISTANCE) {
-                                break;
-                            }
-
-                            world->InitColumn(camera.position, x, z);
-
-                            world->GenerateTerrain(
-                                world->chunkBiome[x][z],
-                                x,
-                                z
-                            );
-
-                            world->BuildDistanceToClosestVoxel(x, z);
-                            world->BuildDistanceLayerBaseline(x, z);
-                            world->BuildDistanceLayer(x, z, 8);
-                            world->BuildDistanceLayer(x, z, 4);
-
-                            for (int y = 0; y < WORLD_HEIGHT / 32; y++) {
-                                world->voxelChunks[x][y][z].CheckOriginals(
-                                    world->traversalChunks[x][y][z].buildID
-                                );
-                            }
-
-                            world->GenerateOccupancyMasks(x, z);
-
-                            nextColumnToGenerate++;
-                            generatedChunks++;
-                        }
                         world->lightSources[world->lightSourceCount].position = {WORLD_WIDTH/2.0f, 120, WORLD_DEPTH/2.0f};
                         world->lightSources[world->lightSourceCount].colorR = 255;
                         world->lightSources[world->lightSourceCount].colorG = 255;
-                        world->lightSources[world->lightSourceCount].colorB = 255;  
+                        world->lightSources[world->lightSourceCount].colorB = 255;
+                        world->lightSources[world->lightSourceCount].intensity = 0.3f;
                         world->lightSourceCount++;
+                        world->lightSources[world->lightSourceCount].position = {WORLD_WIDTH/2.0f+25, 120+25, WORLD_DEPTH/2.0f-25};
+                        world->lightSources[world->lightSourceCount].colorR = 255;
+                        world->lightSources[world->lightSourceCount].colorG = 255;
+                        world->lightSources[world->lightSourceCount].colorB = 255;
+                        world->lightSources[world->lightSourceCount].intensity = 0.3f;
+                          
+                        world->lightSourceCount++;
+                        world->lightSourceCount = 2;
                         worldFinished.store(2);
                     });
                     DisableCursor();

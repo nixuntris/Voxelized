@@ -749,11 +749,48 @@ struct Viewport {
                 float finalB = baseB * (1.0f - mixStrength)
                             + colorToMix.b * mixStrength;
                 for (int i = 0; i < world->lightSourceCount; i++) {
-                    if (Vector3Distance({hits[pixelIndex].x,hits[pixelIndex].y,hits[pixelIndex].z},world->lightSources[i].position)<50) {
+                    Vector3 hitPos = {hits[pixelIndex].x,hits[pixelIndex].y,hits[pixelIndex].z};
+                    if (Vector3Distance(hitPos,world->lightSources[i].position)<50) {
+                        Vector3 direction = Vector3Normalize(Vector3Subtract(world->lightSources[i].position, hitPos));
+                        Vector3 beginPos = world->lightSources[i].position;
+                        beginPos.x = floor(beginPos.x);
+                        beginPos.y = floor(beginPos.y);
+                        beginPos.z = floor(beginPos.z);
 
-                        finalR += float(world->lightSources[i].colorR)/255.0f;
-                        finalG += float(world->lightSources[i].colorG)/255.0f;
-                        finalB += float(world->lightSources[i].colorB)/255.0f;
+
+                        for (int i = 0; i < 50; i++) {
+                            beginPos.x += direction.x * 2;
+                            beginPos.y += direction.y * 2;
+                            beginPos.z += direction.z * 2;
+                            
+                            int cx = floor(beginPos.x) / 32;
+                            int cy = floor(beginPos.y) / 32;
+                            int cz = floor(beginPos.z) / 32;
+                            if (cx == activeGenerationX && cz == activeGenerationZ) break;
+                            if (!world->voxelChunks[cx][cy][cz].generated) break;
+                            if (world->voxelChunks[cx][cy][cz].containsBlocks) {
+                                int lx = int(floor(beginPos.x)) % 32;
+                                int ly = int(floor(beginPos.y)) % 32;
+                                int lz = int(floor(beginPos.z)) % 32;
+                                int lodr = world->voxelChunks[cx][cy][cz].lod; 
+                                int lodIndex = IDX(lx/lodr,ly/lodr,lz/lodr,world->voxelChunks[cx][cy][cz].size);
+                                if (world->traversalChunks[cx][cy][cz].occupancy[lodIndex >> 6] & (1ull << (lodIndex & 63))) {
+                                    uint8_t type;
+                                    if (world->voxelChunks[cx][cy][cz].palletized==0) {
+                                        type = READ_VOXEL(world->voxelChunks[cx][cy][cz], lodIndex);
+                                    }
+                                    else type = world->voxelChunks[cx][cy][cz].palletized;
+                                    if (type != 0) {
+                                        break;
+                                    }
+                                }
+                                
+                            }
+                        }
+                        float fallOff = 1-(float(i)/50.0f);
+                        finalR += float(world->lightSources[i].colorR)*world->lightSources[i].intensity * fallOff;
+                        finalG += float(world->lightSources[i].colorG)*world->lightSources[i].intensity * fallOff;
+                        finalB += float(world->lightSources[i].colorB)*world->lightSources[i].intensity * fallOff;
                     }
 
                 }
