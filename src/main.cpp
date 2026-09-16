@@ -127,7 +127,20 @@ class App {
                     oldCameraTarget.z!=camera.target.z) {
                         renderPort.cameraMoved = true;
                     }
+                    for (int i = 0; world->lightSourceCount; i++) {
+                        int cx = world->lightSources[i].position.x/32;
+                        int cy = world->lightSources[i].position.y/32;
+                        int cz = world->lightSources[i].position.z/32;
+                        world->voxelChunks[cx][cy][cz].lightSources[world->voxelChunks[cx][cy][cz].lightIdCount++] = &world->lightSources[i];
+                    }
                     renderPort.Render(camera,&generatingColumnX,&generatingColumnZ);
+                    for (int i = 0; world->lightSourceCount; i++) {
+                        int cx = world->lightSources[i].position.x/32;
+                        int cy = world->lightSources[i].position.y/32;
+                        int cz = world->lightSources[i].position.z/32;
+                        world->voxelChunks[cx][cy][cz].lightIdCount = 0;
+                    }
+
                 }
                         
                 UpdateTexture(renderPort.displayBuffer, renderPort.imageBuffer.data);

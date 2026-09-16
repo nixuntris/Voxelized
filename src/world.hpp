@@ -117,9 +117,10 @@ struct VoxelChunk {
     int lod = -1;
     bool chunkedPallete = false;
     int size = 0;
+    uint8_t lightIdCount = 0;
+    LightSource *lightSources[256];
     inline int Generate(uint8_t* heightMap,uint8_t* noiseXY,uint8_t* noiseXZ,uint8_t* noiseYZ,int chunkX, int chunkY, int chunkZ,WorldType worldType = WORLD_PLAINS) {
         containsBlocks = false;
-
         auto EnsureStorage = [&]() {
             if (!containsBlocks) {
                 voxels = (uint8_t*)MemAlloc(32 * 32 * 32);
