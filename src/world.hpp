@@ -13,6 +13,29 @@ using Clock = std::chrono::steady_clock;
 auto ms = [](auto start, auto end) {
     return std::chrono::duration<double, std::milli>(end - start).count();
 };
+
+struct Probe {
+    uint64_t lightHitAlready[4]; //Each bit represents a light and if it hit
+    float colorR;
+    float colorG;
+    float colorB;
+    inline void Reset() {
+        colorR = 0;
+        colorG = 0;
+        colorB = 0;
+        std::memset(lightHitAlready, 0, sizeof(lightHitAlready));
+    }
+    inline void AddRadiance(uint8_t colorR, uint8_t colorG, uint8_t colorB, float strength, int lightId) {
+        if (lightHitAlready[lightId/64] & (1ULL << (lightId%64))) return;
+
+        lightHitAlready[lightId >> 6] |= (1ull << (lightId % 64));
+        colorR += float(colorR) * strength;
+        colorG += float(colorG) * strength;
+        colorB += float(colorB) * strength;   
+
+    }
+};
+
 #define READ_VOXEL(chunk, index)                                             \
     (!(chunk).containsBlocks ? AIR :                                         \
      !(chunk).chunkedPallete ? (chunk).voxels[(index)] :                     \
@@ -119,6 +142,7 @@ struct VoxelChunk {
     int size = 0;
     uint8_t lightIdCount = 0;
     LightSource *lightSources[256];
+    Probe *probes = nullptr;
     inline int Generate(uint8_t* heightMap,uint8_t* noiseXY,uint8_t* noiseXZ,uint8_t* noiseYZ,int chunkX, int chunkY, int chunkZ,WorldType worldType = WORLD_PLAINS) {
         containsBlocks = false;
         auto EnsureStorage = [&]() {
@@ -548,7 +572,7 @@ struct World {
                 SafeFree(reinterpret_cast<void*&>(v.voxelLightValueG));
                 SafeFree(reinterpret_cast<void*&>(v.voxelLightValueB));
                 SafeFree(reinterpret_cast<void*&>(v.remap));
-
+                SafeFree(reinterpret_cast<void*&>(v.probes));
                 SafeFree(reinterpret_cast<void*&>(t.occupancy));
                 SafeFree(reinterpret_cast<void*&>(t.distance16));
                 SafeFree(reinterpret_cast<void*&>(t.distance8));
@@ -988,6 +1012,7 @@ struct World {
                 traversalChunks[x][y][z].BuildOccupancyMask(voxelChunks[x][y][z]);
                 int size = 32/traversalChunks[x][y][z].buildID;
                 size/=shadowQuality;
+                voxelChunks[x][y][z].probes = (Probe*)MemAlloc((size/4)*(size/4)*(size/4)*sizeof(Probe));
                 voxelChunks[x][y][z].voxelLightValueR = (uint8_t*)MemAlloc(size*size*size); 
                 voxelChunks[x][y][z].voxelLightValueG = (uint8_t*)MemAlloc(size*size*size); 
                 voxelChunks[x][y][z].voxelLightValueB = (uint8_t*)MemAlloc(size*size*size); 
