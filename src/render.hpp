@@ -748,11 +748,16 @@ struct Viewport {
 
                 float finalB = baseB * (1.0f - mixStrength)
                             + colorToMix.b * mixStrength;
-                for (int i = 0; i < world->lightSourceCount; i++) {
-                    Vector3 hitPos = {hits[pixelIndex].x,hits[pixelIndex].y,hits[pixelIndex].z};
-                    if (Vector3Distance(hitPos,world->lightSources[i].position)<50) {
-                        Vector3 direction = Vector3Normalize(Vector3Subtract(world->lightSources[i].position, hitPos));
-                        Vector3 beginPos = world->lightSources[i].position;
+                Vector3 hitPos = {hits[pixelIndex].x,hits[pixelIndex].y,hits[pixelIndex].z};
+                int cx = int(hits[pixelIndex].x) >> 5;
+                int cy = int(hits[pixelIndex].y) >> 5;
+                int cz = int(hits[pixelIndex].z) >> 5;
+
+                for (int i = 0; i < world->voxelChunks[cx][cy][cz].lightIdCount; i++) {
+                    LightSource& light = *world->voxelChunks[cx][cy][cz].lightSources[i];
+                    if (Vector3Distance(hitPos,light.position)<50) {
+                        Vector3 direction = Vector3Normalize(Vector3Subtract(light.position, hitPos));
+                        Vector3 beginPos = light.position;
                         beginPos.x = floor(beginPos.x);
                         beginPos.y = floor(beginPos.y);
                         beginPos.z = floor(beginPos.z);
@@ -788,9 +793,9 @@ struct Viewport {
                             }
                         }
                         float fallOff = 1-(float(i)/50.0f);
-                        finalR += float(world->lightSources[i].colorR)*world->lightSources[i].intensity * fallOff;
-                        finalG += float(world->lightSources[i].colorG)*world->lightSources[i].intensity * fallOff;
-                        finalB += float(world->lightSources[i].colorB)*world->lightSources[i].intensity * fallOff;
+                        finalR += float(light.colorR)*light.intensity * fallOff;
+                        finalG += float(light.colorG)*light.intensity * fallOff;
+                        finalB += float(light.colorB)*light.intensity * fallOff;
                     }
 
                 }

@@ -99,7 +99,7 @@ class App {
 
             world->lightSources[1].position.x += sinf((float)frame/100.0f)*0.5f;
             world->lightSources[1].position.z += cosf((float)frame/100.0f)*0.5f;
-
+            
             BeginDrawing();
             ClearBackground(WHITE);
             frame++;
@@ -127,18 +127,40 @@ class App {
                     oldCameraTarget.z!=camera.target.z) {
                         renderPort.cameraMoved = true;
                     }
-                    for (int i = 0; world->lightSourceCount; i++) {
+                    for (int i = 0; i<world->lightSourceCount; i++) {
+                        std::cout<<i<<"\n";
                         int cx = world->lightSources[i].position.x/32;
                         int cy = world->lightSources[i].position.y/32;
                         int cz = world->lightSources[i].position.z/32;
-                        world->voxelChunks[cx][cy][cz].lightSources[world->voxelChunks[cx][cy][cz].lightIdCount++] = &world->lightSources[i];
+                        int radius = 50;
+                        int chunkMin = -radius/32;
+                        int chunkMax = radius/32;
+                        for (int x = chunkMin; x <= chunkMax; x++) {
+                            for (int y = chunkMin; y <= chunkMax; y++) {
+                                for (int z = chunkMin; z <= chunkMax; z++) {          
+                                    if (cx+x<0 || cy+y<0 || cz+z<0 || cx+x>=WORLD_WIDTH/32 || cy+y>=WORLD_HEIGHT/32 || cz+z>=WORLD_DEPTH/32) continue;
+                                    world->voxelChunks[cx+x][cy+y][cz+z].lightSources[world->voxelChunks[cx+x][cy+y][cz+z].lightIdCount++] = &world->lightSources[i];
+                                }
+                            }
+                        }
                     }
                     renderPort.Render(camera,&generatingColumnX,&generatingColumnZ);
-                    for (int i = 0; world->lightSourceCount; i++) {
+                    for (int i = 0; i<world->lightSourceCount; i++) {
                         int cx = world->lightSources[i].position.x/32;
                         int cy = world->lightSources[i].position.y/32;
                         int cz = world->lightSources[i].position.z/32;
-                        world->voxelChunks[cx][cy][cz].lightIdCount = 0;
+                        int radius = 50;
+                        int chunkMin = -radius/32;
+                        int chunkMax = radius/32;
+                        for (int x = chunkMin; x <= chunkMax; x++) {
+                            for (int y = chunkMin; y <= chunkMax; y++) {
+                                for (int z = chunkMin; z <= chunkMax; z++) {
+
+                                    if (cx+x<0 || cy+y<0 || cz+z<0 || cx+x>=WORLD_WIDTH/32 || cy+y>=WORLD_HEIGHT/32 || cz+z>=WORLD_DEPTH/32) continue;
+                                    world->voxelChunks[cx+x][cy+y][cz+z].lightIdCount = 0;
+                                }
+                            }
+                        }
                     }
 
                 }
@@ -404,6 +426,7 @@ class App {
                           
                         world->lightSourceCount++;
                         world->lightSourceCount = 2;
+                        std::cout<<world->lightSourceCount<<"\n";
                         worldFinished.store(2);
                     });
                     DisableCursor();
