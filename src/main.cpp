@@ -128,7 +128,6 @@ class App {
                         renderPort.cameraMoved = true;
                     }
                     for (int i = 0; i<world->lightSourceCount; i++) {
-                        std::cout<<i<<"\n";
                         int cx = world->lightSources[i].position.x/32;
                         int cy = world->lightSources[i].position.y/32;
                         int cz = world->lightSources[i].position.z/32;
@@ -263,7 +262,7 @@ class App {
                     generatedChunks++;
                 }
                 if (nextColumnToGenerate < generationOrder.size()) {
-                    if (frame%5==0 && chunkFinished.load(std::memory_order_acquire) == 0) {
+                    if (frame%2==0 && chunkFinished.load(std::memory_order_acquire) == 0) {
                         size_t candidate = generationOrder.size();
                         float bestDistance = std::numeric_limits<float>::max();
                         for (size_t i = nextColumnToGenerate; i < generationOrder.size(); i++) {

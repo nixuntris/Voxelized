@@ -110,7 +110,7 @@ const float LOD32_START = 32.0f / PIXEL_WORLD_SLOPE;
 const int WORLD_WIDTH = 8192*4;
 const int WORLD_DEPTH = 8192*4;
 const int WORLD_HEIGHT = 512;
-const int RENDERDISTANCE = 256;
+const int RENDERDISTANCE = 2048;
 enum WorldType {
     WORLD_PLAINS = 0,
     WORLD_MOUNTAINS,
@@ -1012,7 +1012,7 @@ struct World {
                 traversalChunks[x][y][z].BuildOccupancyMask(voxelChunks[x][y][z]);
                 int size = 32/traversalChunks[x][y][z].buildID;
                 size/=shadowQuality;
-                voxelChunks[x][y][z].probes = (Probe*)MemAlloc((size/4)*(size/4)*(size/4)*sizeof(Probe));
+//                voxelChunks[x][y][z].probes = (Probe*)MemAlloc((size/4)*(size/4)*(size/4)*sizeof(Probe));
                 voxelChunks[x][y][z].voxelLightValueR = (uint8_t*)MemAlloc(size*size*size); 
                 voxelChunks[x][y][z].voxelLightValueG = (uint8_t*)MemAlloc(size*size*size); 
                 voxelChunks[x][y][z].voxelLightValueB = (uint8_t*)MemAlloc(size*size*size); 
