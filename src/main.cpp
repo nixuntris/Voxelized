@@ -117,7 +117,9 @@ class App {
                     }
                 }
                 if (gui==0) {    
-                                
+                    if (IsKeyDown(KEY_C)) {
+                        world->Save();
+                    }     
                     Vector3 oldCameraTarget = camera.target;
                     UpdateCamera(&camera, CAMERA_FREE);
                     renderPort.cameraMoved = false;
@@ -443,9 +445,8 @@ class App {
         std::cout<<generatedChunks<<"\n";
     }
 }
-
-
 };
+
 
 int main() {
     App *app = new App;

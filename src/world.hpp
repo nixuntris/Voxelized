@@ -1054,6 +1054,27 @@ struct World {
             }
         }
     }
+    static inline uint32_t PackChunkCoord(int x, int y, int z) {
+        return (uint32_t(x) << 20) | (uint32_t(y) << 10) | uint32_t(z);
+    }
+    void Save() {
+        //chunk x,y,z
+        //palette
+        //flags
+        //Run length encoded voxel data
+        //rinse and repeat
+        int generatedChunks = 0;
+        for (int x = 0; x < WORLD_WIDTH; x++) {
+            for (int y = 0; y < WORLD_HEIGHT; y++) {
+                for (int z = 0; z < WORLD_DEPTH; z++) {
+                    if (voxelChunks[x][y][z].generated) {
+                        generatedChunks++;
+                    }
+                }
+            }
+        }
+        std::cout<<generatedChunks<<"\n";
+    }
     void Init() {
         const int chunksX = WORLD_WIDTH / 32;
         const int chunksZ = WORLD_DEPTH / 32;
